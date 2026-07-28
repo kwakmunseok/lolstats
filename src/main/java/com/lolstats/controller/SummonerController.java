@@ -7,7 +7,10 @@ import com.lolstats.service.SummonerService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/summoners")
@@ -29,5 +32,23 @@ public class SummonerController {
         // Sync, best-effort collection (Phase 1: no background queue yet - that's Phase 2).
         matchService.collectRecentMatches(summoner.getPuuid());
         return SummonerResponse.from(summoner);
+    }
+
+    @GetMapping("/autocomplete")
+    public List<SummonerResponse> autocomplete(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "10") int limit) {
+        return summonerService.autocomplete(query, limit).stream()
+                .map(SummonerResponse::from)
+                .toList();
+    }
+
+    // Phase 1: DB-only (SEARCH_COUNTS is the source of truth either way). Redis ZSET
+    // read-through comes in Phase 2 - PROJECT_PLAN.md §4 원칙, §7.
+    @GetMapping("/popular")
+    public List<SummonerResponse> popular(@RequestParam(defaultValue = "10") int limit) {
+        return summonerService.popular(limit).stream()
+                .map(SummonerResponse::from)
+                .toList();
     }
 }

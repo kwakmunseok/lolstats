@@ -139,11 +139,11 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 7. 자동완성 API — 2~3h
 
-- [ ] `GET /api/summoners/autocomplete?query=&limit=` — `game_name LIKE 'query%'` 검색
-- [ ] `ORDER BY last_searched_at DESC` + **puuid 기준 dedupe** (§4 설계 노트 — 동일 이름 옛 주인/새 주인 중복 노출 방지)
-- [ ] `GET /api/summoners/popular?limit=` — Phase 1은 Redis 없이 **SEARCH_COUNTS를 DB에서 직접 정렬 조회**
+- [x] `GET /api/summoners/autocomplete?query=&limit=` — `game_name LIKE 'query%'` 검색 (대소문자 무시, `SEARCH_COUNTS`를 기준 테이블로 JOIN — 자동완성 대상 자체가 "과거 검색된 소환사"뿐이라 안전)
+- [x] `ORDER BY last_searched_at DESC` + **puuid 기준 dedupe** (§4 설계 노트 — 동일 이름 옛 주인/새 주인 중복 노출 방지). MySQL엔 `DISTINCT ON`이 없어 `(gameName,tagLine)` 기준 `limit*3`만큼 넉넉히 조회한 뒤 이미 정렬된 순서 그대로 첫 등장(=가장 최근 검색된 puuid)만 남기는 방식으로 애플리케이션에서 처리
+- [x] `GET /api/summoners/popular?limit=` — Phase 1은 Redis 없이 **SEARCH_COUNTS를 DB에서 직접 정렬 조회** (search_count DESC, last_searched_at DESC 보정)
 
-**완료 기준**: 과거 검색된 소환사 이름 앞부분을 입력하면 후보가 뜨고, 동일 이름 중복이 puuid 기준으로 걸러짐.
+**완료 기준**: ✅ 실제 서버+MySQL로 확인. `query=Hide`/`query=hide` 둘 다 200 + 동일 결과(대소문자 무시 확인), 매치 없으면 빈 배열. **dedup은 실제 DB에 동일 이름·다른 puuid·더 오래된 last_searched_at을 가진 가짜 행을 임시로 넣고 재확인** — autocomplete 결과가 여전히 1건(최근 검색된 진짜 행)만 반환됨을 확인 후 정리. popular도 정상 동작.
 
 ### 8. 검색 입력 검증 (FE/BE) — 1~2h
 

@@ -21,6 +21,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -152,5 +153,44 @@ class SummonerServiceTest {
 
         assertEquals("puuid-new-owner", result.getPuuid());
         assertEquals(2L, result.getId());
+    }
+
+    @Test
+    void autocomplete_dedupesSameDisplayNameKeepingMostRecentlySearched() {
+        // Repository already orders by last_searched_at DESC, so the mock returns the
+        // most-recently-searched (new owner) row first.
+        Summoner newOwner = Summoner.builder().id(2L).puuid("puuid-new").gameName("Hide on bush").tagLine("KR1").build();
+        Summoner oldOwner = Summoner.builder().id(1L).puuid("puuid-old").gameName("Hide on bush").tagLine("KR1").build();
+        when(searchCountRepository.findSummonersByGameNamePrefix(eq("Hide"), any()))
+                .thenReturn(List.of(newOwner, oldOwner));
+
+        List<Summoner> result = service.autocomplete("Hide", 10);
+
+        assertEquals(1, result.size());
+        assertEquals("puuid-new", result.get(0).getPuuid());
+    }
+
+    @Test
+    void autocomplete_respectsLimitAfterDedup() {
+        List<Summoner> candidates = List.of(
+                Summoner.builder().id(1L).puuid("p1").gameName("Faker1").tagLine("KR1").build(),
+                Summoner.builder().id(2L).puuid("p2").gameName("Faker2").tagLine("KR1").build(),
+                Summoner.builder().id(3L).puuid("p3").gameName("Faker3").tagLine("KR1").build());
+        when(searchCountRepository.findSummonersByGameNamePrefix(eq("Faker"), any())).thenReturn(candidates);
+
+        List<Summoner> result = service.autocomplete("Faker", 2);
+
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    void popular_delegatesToRepository() {
+        Summoner top = Summoner.builder().id(1L).puuid("p1").gameName("Faker").tagLine("KR1").build();
+        when(searchCountRepository.findPopularSummoners(any())).thenReturn(List.of(top));
+
+        List<Summoner> result = service.popular(5);
+
+        assertEquals(1, result.size());
+        assertEquals("Faker", result.get(0).getGameName());
     }
 }

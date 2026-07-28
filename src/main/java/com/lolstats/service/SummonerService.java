@@ -9,11 +9,15 @@ import com.lolstats.domain.Summoner;
 import com.lolstats.repository.SearchCountRepository;
 import com.lolstats.repository.SummonerRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -87,5 +91,26 @@ public class SummonerService {
         searchCount.setSearchCount(searchCount.getSearchCount() + 1);
         searchCount.setLastSearchedAt(Instant.now());
         searchCountRepository.save(searchCount);
+    }
+
+    public List<Summoner> autocomplete(String query, int limit) {
+        // Over-fetch before deduping: a (game_name, tag_line) can legitimately appear on
+        // more than one row (old/new Riot ID owner - PROJECT_PLAN.md §6), so the raw query
+        // can yield fewer distinct display names than `limit` rows.
+        int fetchCap = Math.max(limit * 3, 20);
+        List<Summoner> candidates = searchCountRepository.findSummonersByGameNamePrefix(
+                query, PageRequest.of(0, fetchCap));
+
+        // Already ordered by last_searched_at DESC, so keeping the first occurrence per
+        // (game_name, tag_line) keeps whichever puuid was searched most recently.
+        Map<String, Summoner> deduped = new LinkedHashMap<>();
+        for (Summoner candidate : candidates) {
+            deduped.putIfAbsent(candidate.getGameName() + "#" + candidate.getTagLine(), candidate);
+        }
+        return deduped.values().stream().limit(limit).toList();
+    }
+
+    public List<Summoner> popular(int limit) {
+        return searchCountRepository.findPopularSummoners(PageRequest.of(0, limit));
     }
 }
