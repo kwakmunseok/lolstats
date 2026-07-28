@@ -71,14 +71,14 @@ Data Dragon 연동(5)은 Riot API·DB와 무관하므로 2번 이후 아무 때�
 
 Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체 스키마 중 발췌):
 
-- [ ] `SUMMONERS` 엔티티 (puuid unique, game_name/tag_line, tier/rank/league_points nullable, wins/losses, updated_at)
-- [ ] `MATCHES` 엔티티 (riot_match_id unique, game_creation, game_duration, queue_type)
-- [ ] `MATCH_PARTICIPANTS` 엔티티 — **SUMMONERS FK 없음**, puuid를 인덱스 컬럼으로만 저장 (§6 설계 노트 — FK 강제 시 매치 저장마다 껍데기 소환사 10명 생성 문제 방지)
-- [ ] `SEARCH_COUNTS` 엔티티 (summoner_id 1:1 PK, search_count, last_searched_at)
-- [ ] `MATCH_PARTICIPANTS.puuid`, `SUMMONERS.game_name`에 인덱스 추가 (자동완성 LIKE 검색, 매치 조회용)
-- [ ] 스키마 생성은 **`spring.jpa.hibernate.ddl-auto=update`**로 진행 (dev 프로필). 배포 시점(§9)에 prod는 `validate`로 전환 예정 — 지금은 별도 마이그레이션 도구 도입 안 함
+- [x] `SUMMONERS` 엔티티 (puuid unique, game_name/tag_line, tier/rank/league_points nullable, wins/losses, updated_at) — `rank`는 MySQL 8 예약어라 `@Column(name = "`rank`")`로 백틱 처리
+- [x] `MATCHES` 엔티티 (riot_match_id unique, game_creation, game_duration, queue_type)
+- [x] `MATCH_PARTICIPANTS` 엔티티 — **SUMMONERS FK 없음**, puuid를 인덱스 컬럼으로만 저장 (§6 설계 노트 — FK 강제 시 매치 저장마다 껍데기 소환사 10명 생성 문제 방지). items_json/runes_json은 Hibernate `@JdbcTypeCode(SqlTypes.JSON)`로 MySQL 네이티브 JSON 컬럼 매핑(추가 의존성 없음)
+- [x] `SEARCH_COUNTS` 엔티티 (summoner_id 1:1 PK, search_count, last_searched_at) — `@OneToOne @MapsId`로 Summoner와 PK 공유
+- [x] `MATCH_PARTICIPANTS.puuid`, `SUMMONERS.game_name`에 인덱스 추가 (자동완성 LIKE 검색, 매치 조회용)
+- [x] 스키마 생성은 **`spring.jpa.hibernate.ddl-auto=update`**로 진행 (dev 프로필). 배포 시점(§9)에 prod는 `validate`로 전환 예정 — 지금은 별도 마이그레이션 도구 도입 안 함
 
-**완료 기준**: 엔티티 4개가 로컬 MySQL에 테이블로 생성되고, Repository 기본 CRUD가 테스트로 동작 확인됨.
+**완료 기준**: ✅ 엔티티 4개가 로컬 MySQL에 테이블로 생성되고(`SHOW TABLES`/`DESCRIBE`로 확인), Repository 기본 CRUD가 `RepositoryIntegrationTest`(`@DataJpaTest` + `Replace.NONE`, 실제 MySQL 대상)로 확인됨.
 
 > ⚠️ 이 단계에서 결정이 필요한 것: **JPA `ddl-auto` vs 수동 마이그레이션**. 계획서에 도구가 지정돼 있지 않으므로, 시작 전에 정하는 게 좋음.
 
