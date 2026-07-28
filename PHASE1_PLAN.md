@@ -132,8 +132,10 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 6. 티어 엠블럼 정적 리소스 — 0.5~1h
 
-- [ ] Riot 개발자 포털 "Ranked Emblems" 자산 다운로드 → `src/main/resources/static/images/tier-emblems/`
-- [ ] tier 문자열(IRON~CHALLENGER) → 이미지 파일명 매핑 함수/상수
+- [x] Riot 개발자 포털 "Ranked Emblems" 자산 다운로드 → `src/main/resources/static/images/tier-emblems/`. 공식 URL `static.developer.riotgames.com/docs/lol/ranked-emblems-latest.zip`(developer.riotgames.com/docs/lol 공개 문서에서 확인 — 로그인 불필요). 압축 안의 "Rank=*.png"(플레인 엠블럼, 10종 전부: IRON~CHALLENGER, Emerald 포함) 원본 1000×1000px을 128×128로 리사이즈 후 파일명을 tier 문자열로 통일해 포함(4.6MB → 184KB, 리포 부담 최소화). "Tier Wings"/"Wings" 폴더(장당 최대 20MB 초고해상도 원본)는 웹 배지 용도에 불필요해 제외
+- [x] tier 문자열(IRON~CHALLENGER) → 이미지 파일명 매핑 함수/상수 — `TierEmblems.imageUrl(tier)`. 파일명을 Riot의 실제 tier 문자열과 동일하게 맞춰서 룩업 테이블 없이 `"/images/tier-emblems/" + tier + ".png"` 한 줄로 처리
+
+**완료 기준**: ✅ 10개 파일 전부 `src/main/resources/static/images/tier-emblems/`에 존재, 실제 서버 기동 후 `GET /images/tier-emblems/CHALLENGER.png` 등 200 확인(존재하지 않는 파일은 404). `TierEmblemsTest` 2케이스(정상/언랭 null) 통과.
 
 ### 7. 자동완성 API — 2~3h
 
