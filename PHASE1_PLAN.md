@@ -123,12 +123,12 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 5. Data Dragon 연동 — 4~5h
 
-- [ ] `versions.json` 조회 → 최신 버전 캐싱 (인메모리, 하루 1회 갱신 — 스케줄 트리거 or 앱 기동 시 로드 + TTL 체크)
-- [ ] `champion.json`, `item.json`, `runesReforged.json` (ko_KR) 매핑 데이터 앱 캐싱 (인메모리 Map, 버전 갱신 시 함께 갱신)
-- [ ] 이미지 URL 헬퍼: 챔피언/아이템/스펠/프로필아이콘/룬 5종 URL 조합 함수 (§4 Data Dragon 설계 노트의 URL 패턴 그대로)
-- [ ] `championId`(int) → 챔피언 이름/이미지 변환, 화면에서 사용할 수 있는 형태로 Thymeleaf에 노출
+- [x] `versions.json` 조회 → 최신 버전 캐싱 (인메모리, 하루 1회 갱신 — **앱 기동 시 `@PostConstruct` 로드 + 매 조회마다 TTL 체크**하는 방식 채택, 별도 스케줄러(`@EnableScheduling`) 도입 안 함)
+- [x] `champion.json`, `item.json`, `runesReforged.json` (ko_KR) 매핑 데이터 앱 캐싱 (인메모리 Map, 버전 갱신 시 함께 갱신). **`summoner.json`(스펠)도 함께 캐싱** — Task 5 체크리스트엔 없었지만 §4 Phase 1 요건("스펠 아이콘 표시")과 매치 데이터의 `spell1_id`/`spell2_id`를 실제 아이콘으로 바꾸려면 champion.json과 동일한 이유(내부 이름과 숫자 ID가 분리돼 있음)로 반드시 필요 — 정적 ID→이름 테이블을 손으로 하드코딩하는 대신 동일 패턴으로 캐싱
+- [x] 이미지 URL 헬퍼: 챔피언/아이템/스펠/프로필아이콘/룬 5종 URL 조합 함수 (§4 Data Dragon 설계 노트의 URL 패턴 그대로 — 룬만 버전 없는 `/cdn/img/` 경로, 나머지는 `/cdn/{version}/img/...`)
+- [x] `championId`(int) → 챔피언 이름/이미지 변환. `getChampion`/`getItem`/`getSpell`/`getRuneIconUrl`/`getProfileIconUrl`로 노출(Thymeleaf 화면은 Task 9에서 소비)
 
-**완료 기준**: `championId: 103`을 넣으면 "아리" 한글명과 정확한 이미지 URL이 반환됨. 버전 값이 하드코딩되어 있지 않음.
+**완료 기준**: ✅ Mockito 7케이스(챔피언/아이템/스펠/룬 조회, 미존재 ID는 `Optional.empty()`, TTL 이내 재조회 시 재호출 안 함) + 실제 Data Dragon CDN 대상 라이브 확인(임시 테스트, 커밋 안 함): `championId 103` → `ChampionInfo[id=103, name=아리, imageUrl=.../16.14.1/img/champion/Ahri.png]`, 버전은 `versions.json`에서 동적으로 가져온 `16.14.1`(하드코딩 없음). 아이템/스펠/룬/프로필아이콘 URL도 전부 실제 CDN에서 200 확인.
 
 ### 6. 티어 엠블럼 정적 리소스 — 0.5~1h
 

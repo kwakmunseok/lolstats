@@ -6,3 +6,7 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: false
+
+ddragon:
+  base-url: https://ddragon.leagueoflegends.com
+  refresh-interval-hours: 24
