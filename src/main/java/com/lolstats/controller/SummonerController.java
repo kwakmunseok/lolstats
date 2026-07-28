@@ -4,6 +4,8 @@ import com.lolstats.domain.Summoner;
 import com.lolstats.dto.SummonerResponse;
 import com.lolstats.service.MatchService;
 import com.lolstats.service.SummonerService;
+import jakarta.validation.constraints.Size;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +16,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/summoners")
+@Validated
 public class SummonerController {
 
     private final SummonerService summonerService;
@@ -25,9 +28,12 @@ public class SummonerController {
     }
 
     // "riot-id" prefix keeps this 2-segment route from colliding with /{summonerId}/matches
-    // (PROJECT_PLAN.md §7 경로 설계 노트).
+    // (PROJECT_PLAN.md §7 경로 설계 노트). Length bounds are Riot's own Riot ID policy
+    // (PHASE1_PLAN.md Task 1) - BE is the final gate, FE validation below is UX-only.
     @GetMapping("/riot-id/{gameName}/{tagLine}")
-    public SummonerResponse getByRiotId(@PathVariable String gameName, @PathVariable String tagLine) {
+    public SummonerResponse getByRiotId(
+            @PathVariable @Size(min = 3, max = 16, message = "게임 이름은 3~16자여야 합니다") String gameName,
+            @PathVariable @Size(min = 3, max = 5, message = "태그라인은 3~5자여야 합니다") String tagLine) {
         Summoner summoner = summonerService.findOrFetch(gameName, tagLine);
         // Sync, best-effort collection (Phase 1: no background queue yet - that's Phase 2).
         matchService.collectRecentMatches(summoner.getPuuid());

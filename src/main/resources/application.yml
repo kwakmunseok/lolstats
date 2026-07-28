@@ -6,6 +6,9 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: false
+  mvc:
+    problemdetails:
+      enabled: true
 
 ddragon:
   base-url: https://ddragon.leagueoflegends.com

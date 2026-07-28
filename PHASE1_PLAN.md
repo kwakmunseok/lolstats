@@ -147,13 +147,15 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 8. 검색 입력 검증 (FE/BE) — 1~2h
 
-- [ ] BE: 검색 요청 DTO에 `@NotBlank`, `@Size(min=3, max=16)`(게임 이름), `@Size(min=3, max=5)`(태그라인) 적용
-- [ ] `@ControllerAdvice`로 검증 실패 응답 포맷 통일 (§4 Validation 정책 — 이후 Phase에서도 재사용되는 전역 예외 처리이므로 Phase 1에서 골격을 잡아두면 이득)
-- [ ] FE: HTML5 `maxlength`/`pattern` + 간단한 JS 실시간 피드백
+- [x] BE: 검색 엔드포인트가 요청 바디 DTO가 아니라 경로 변수(`/riot-id/{gameName}/{tagLine}`, §7 스펙)라 `@Size` DTO 어노테이션 대신 **컨트롤러 `@Validated` + `@PathVariable`에 직접 `@Size(min=3,max=16)`/`@Size(min=3,max=5)`** 적용(동일한 검증 목적, 실제 엔드포인트 시그니처에 맞는 구현). 이 과정에서 **검증 실패가 400이 아니라 500으로 떨어지는 버그를 실제로 발견**(핸들러 없으면 `ConstraintViolationException`이 그냥 500 unhandled로 흘러감)
+- [x] `@ControllerAdvice`로 검증 실패 응답 포맷 통일 — 직접 DTO를 만드는 대신 **`spring.mvc.problemdetails.enabled=true`(RFC 7807 표준)를 켜서 `ResponseStatusException`(Task 4의 404들)은 자동으로 통일**, `ApiExceptionHandler`에 `ConstraintViolationException` 핸들러 하나만 추가해 같은 포맷으로 맞춤 — 결과적으로 400/404 등 모든 에러가 `{type,title,status,detail,instance}` 동일 포맷
+- [ ] FE: HTML5 `maxlength`/`pattern` + 간단한 JS 실시간 피드백 — **Task 9로 이월**. 아직 검색 폼 HTML 자체가 없어(Task 9에서 처음 생성) 지금 붙일 대상이 없음. BE가 최종 방어선이라 기능 공백은 아니며, Task 9 검색 폼 작성 시 함께 추가
+
+**완료 기준**: ✅ 실제 서버로 확인. `gameName` 2자/`tagLine` 6자 등 범위 위반 시 400 + `{title:"Validation failed", detail:"..."}` 반환(수정 전엔 500이었음 — 실사용 버그 발견 및 수정). `/api/matches/{존재안함}` 404도 동일 스키마(`{title,status,detail,instance}`)로 자동 통일됨. 정상 요청은 기존과 동일하게 200.
 
 ### 9. 화면 3종 (Thymeleaf + Bootstrap 5) — 6~8h
 
-- [ ] 메인 화면: 검색창, 최근 검색어(로컬스토리지), 인기 검색어(§7 popular API 연동)
+- [ ] 메인 화면: 검색창(**HTML5 `maxlength`/`pattern` + JS 실시간 피드백 포함 — Task 8에서 이월**), 최근 검색어(로컬스토리지), 인기 검색어(§7 popular API 연동)
 - [ ] 프로필 화면: 티어 엠블럼/레벨/승률 요약(league-v4 값), 최근 매치 리스트(아이콘 기반 — 챔피언 초상화, 아이템 6칸, 룬, 스펠)
 - [ ] 매치 상세 화면: 양 팀 10명 KDA/아이템/룬 (MATCH_PARTICIPANTS 그대로 렌더링, 참가자 10명 중 검색 이력 없는 8~9명은 닉네임 스냅샷만 표시)
 - [ ] Bootstrap 5 CDN 연결, 카드/네비바/테이블 기본 컴포넌트로 구성 (커스텀 CSS 최소화 — §3 화면 기술 선택 이유)
