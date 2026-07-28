@@ -110,14 +110,16 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 4. 매치 수집 (동기 최소) — 4~5h
 
-- [ ] 매치 ID 20개 목록 조회 → DB에 이미 있는 `riot_match_id`는 필터링(원칙 ① — 재요청 금지)
-- [ ] 없는 매치 중 **3~5건만** 상세 조회 후 MATCHES/MATCH_PARTICIPANTS 저장
-- [ ] MATCH_PARTICIPANTS 저장 시 `items_json`/`runes_json`/`spell1_id`/`spell2_id` 함께 저장 (Phase 1 필수 — §6)
-- [ ] 429 응답 처리: 가져온 만큼만 저장하고 남은 건 조용히 중단(에러로 죽지 않게) — "실패 허용" 명시대로
-- [ ] `GET /api/summoners/{summonerId}/matches?page=&size=` 엔드포인트 (Phase 1은 `collecting` 필드 없이 DB에 있는 매치만 페이지네이션 반환)
-- [ ] `GET /api/matches/{riotMatchId}` 매치 상세 엔드포인트
+- [x] 매치 ID 20개 목록 조회 → DB에 이미 있는 `riot_match_id`는 필터링(원칙 ① — 재요청 금지)
+- [x] 없는 매치 중 **5건만**(3~5 범위의 상단) 상세 조회 후 MATCHES/MATCH_PARTICIPANTS 저장
+- [x] MATCH_PARTICIPANTS 저장 시 `items_json`/`runes_json`/`spell1_id`/`spell2_id` 함께 저장 (Phase 1 필수 — §6). `queue_type`은 Riot의 원본 `queueId`(정수, 예: `"420"`)를 문자열 그대로 저장 — 랭크/드래프트 분류는 Phase 3에서 이 값 기준으로 처리(지금 임의로 이름 매핑하면 오분류 위험)
+- [x] 429 응답 처리: 가져온 만큼만 저장하고 남은 건 조용히 중단(에러로 죽지 않게) — "실패 허용" 명시대로
+- [x] `GET /api/summoners/{summonerId}/matches?page=&size=` 엔드포인트 (Phase 1은 `collecting` 필드 없이 DB에 있는 매치만 페이지네이션 반환, 수집 트리거 없음)
+- [x] `GET /api/matches/{riotMatchId}` 매치 상세 엔드포인트
 
-**완료 기준**: 신규 소환사 검색 시 매치 3~5건이 저장되고, 같은 소환사 재조회 시 이미 저장된 매치는 다시 Riot API로 안 감을 로그로 확인.
+> **컨트롤러 보강 (Task 3→4 연결)**: Task 3은 서비스 레이어만 구현하고 컨트롤러를 미뤘는데, 본 Task의 완료 기준 자체가 "소환사 검색 시" 매치 수집을 요구해 트리거 지점이 필요했다. `GET /api/summoners/riot-id/{gameName}/{tagLine}`(§7 스펙과 동일 경로)를 추가해 `SummonerService.findOrFetch` → `MatchService.collectRecentMatches`를 이어 호출하도록 구성. `items`/`runes`는 이미 JSON 텍스트로 저장돼 있어 `@JsonRawValue`로 이중 인코딩 없이 그대로 내려줌.
+
+**완료 기준**: ✅ 실제 서버 기동 + 실 Riot API로 확인. 첫 호출 5건 저장 → 재호출마다 이미 저장된 건 건너뛰고 다음 5건씩 추가(5→10→15→20) → 매치 ID 목록(20개) 전부 채워지면 더 이상 증가하지 않음(DB COUNT로 확인). `/api/matches/{riotMatchId}`도 10명 참가자 전부 정상 반환 확인.
 
 ### 5. Data Dragon 연동 — 4~5h
 
