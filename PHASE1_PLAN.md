@@ -100,13 +100,13 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 3. 소환사 조회 서비스 (DB 캐시 우선) — 4~5h
 
-- [ ] `SummonerService.findOrFetch(gameName, tagLine)`: SUMMONERS에 (game_name, tag_line) 매치 존재 + `updated_at` 만료 전이면 DB 값 반환
-- [ ] 캐시 미스/만료 시 Riot API 클라이언트 순차 호출 → SUMMONERS upsert
-- [ ] **닉네임 변경 대응**: 이름으로 히트했어도 만료 후엔 puuid 기준으로 재조회, puuid가 다르면 새 행으로 처리 (§6 닉네임 변경 정책 — 이 로직 없으면 나중에 되짚기 어려움, Phase 1부터 반영 권장)
-- [ ] 조회 성공 시 `SEARCH_COUNTS` upsert (search_count +1, last_searched_at 갱신)
-- [ ] TTL(캐시 만료 기준 시간) = **10분**, 설정값(`application.yml`)으로 분리해 추후 조정 가능하게
+- [x] `SummonerService.findOrFetch(gameName, tagLine)`: SUMMONERS에 (game_name, tag_line) 매치 존재 + `updated_at` 만료 전이면 DB 값 반환 — `(game_name, tag_line)`에 unique 제약이 없어(§6) 리포지토리는 `List` 반환, 여러 행이면 `updatedAt` 최신 행을 후보로 사용
+- [x] 캐시 미스/만료 시 Riot API 클라이언트 순차 호출 → SUMMONERS upsert
+- [x] **닉네임 변경 대응**: 이름으로 히트했어도 만료 후엔 puuid 기준으로 재조회, puuid가 다르면 새 행으로 처리 (§6 닉네임 변경 정책 — 이 로직 없으면 나중에 되짚기 어려움, Phase 1부터 반영 권장)
+- [x] 조회 성공 시 `SEARCH_COUNTS` upsert (search_count +1, last_searched_at 갱신)
+- [x] TTL(캐시 만료 기준 시간) = **10분**, 설정값(`application.yml`)으로 분리해 추후 조정 가능하게
 
-**완료 기준**: 같은 소환사를 연속 조회 시 두 번째 호출부터는 Riot API를 타지 않고 DB에서만 응답(로그로 확인).
+**완료 기준**: ✅ `SummonerServiceTest`(Mockito, 4개 케이스 — fresh cache hit/expired refetch/unranked null 처리/닉네임 소유자 변경) + 실제 MySQL·Riot API 대상 1회성 라이브 확인(임시 테스트, 커밋 안 함): 첫 호출은 SELECT(이름)→SELECT(puuid)→INSERT 후 Riot 데이터 반환, 두 번째 호출은 SELECT(이름) 한 줄만 찍히고 Riot 호출 없이 캐시값 그대로 반환됨을 Hibernate SQL 로그로 확인.
 
 ### 4. 매치 수집 (동기 최소) — 4~5h
 
