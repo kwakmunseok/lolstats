@@ -3,3 +3,6 @@ spring:
     name: lolstats
   profiles:
     active: dev
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false

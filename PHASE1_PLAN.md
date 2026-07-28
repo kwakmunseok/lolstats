@@ -84,17 +84,19 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 2. Riot API 클라이언트 — 5~6h
 
-- [ ] HTTP 클라이언트 설정 — **RestClient** 사용 (동기 호출, Phase 2의 `@Async`/`CompletableFuture`도 블로킹 RestClient를 별도 스레드에서 감싸는 방식으로 그대로 재사용)
-- [ ] `account-v1` (asia) — `GET /riot/account/v1/accounts/by-riot-id/{gameName}/{tagLine}` → puuid 취득
-- [ ] `summoner-v4` (kr) — `GET /lol/summoner/v4/summoners/by-puuid/{puuid}` → profileIconId, summonerLevel
-- [ ] `league-v4` (kr) — **`GET /lol/league/v4/entries/by-puuid/{puuid}`** (by-summoner 아님 — §4 라우팅 노트) → RANKED_SOLO_5x5 항목만 필터링해 tier/rank/LP/wins/losses 추출
-- [ ] `match-v5` ID 목록 (asia) — `GET /lol/match/v5/matches/by-puuid/{puuid}/ids?count=20`
-- [ ] `match-v5` 상세 (asia) — `GET /lol/match/v5/matches/{matchId}`
-- [ ] Riot 응답 → 내부 DTO 매핑 클래스 분리 (§8 리스크: "Riot 응답 스키마 변경" 대응 — DTO 계층으로 격리)
-- [ ] 최소 예외 처리: 404(찾을 수 없음), 401/403(키 만료·오류) 구분 — 429 재시도는 Phase 2, 여기선 예외를 던지고 상위에서 처리
-- [ ] Mockito로 mock 가능하도록 클라이언트를 인터페이스로 분리
+- [x] HTTP 클라이언트 설정 — **RestClient** 사용, `RiotApiConfig`에서 `riotPlatformClient`(kr)/`riotRegionalClient`(asia) 빈 2개로 분리
+- [x] `account-v1` (asia) — `GET /riot/account/v1/accounts/by-riot-id/{gameName}/{tagLine}` → puuid 취득
+- [x] `summoner-v4` (kr) — `GET /lol/summoner/v4/summoners/by-puuid/{puuid}` → profileIconId, summonerLevel
+- [x] `league-v4` (kr) — **`GET /lol/league/v4/entries/by-puuid/{puuid}`** (by-summoner 아님 — §4 라우팅 노트) → 응답은 큐별 배열 그대로 반환, RANKED_SOLO_5x5 필터링은 Task 3(소환사 조회 서비스) 책임
+- [x] `match-v5` ID 목록 (asia) — `GET /lol/match/v5/matches/by-puuid/{puuid}/ids?count=20`
+- [x] `match-v5` 상세 (asia) — `GET /lol/match/v5/matches/{matchId}` — `perks`는 `JsonNode`로 원형 보존(룬 서브셋 추출은 Task 4에서)
+- [x] Riot 응답 → 내부 DTO 매핑 클래스 분리 (§8 리스크: "Riot 응답 스키마 변경" 대응 — DTO 계층으로 격리). 미사용 필드는 개별 어노테이션 대신 `spring.jackson.deserialization.fail-on-unknown-properties: false` 전역 설정으로 무시
+- [x] 최소 예외 처리 — 커스텀 예외 없이 Spring `RestClient`가 던지는 `HttpClientErrorException.NotFound`/`.Unauthorized`/`.Forbidden`/`.TooManyRequests`를 그대로 전파(각각 타입이 분리돼 있어 상위에서 캐치 가능). 429 재시도는 Phase 2
+- [x] Mockito로 mock 가능하도록 `RiotApiClient` 인터페이스로 분리 (`RiotApiClientImpl`이 구현)
 
-**완료 기준**: 실제 소환사 닉네임으로 account→summoner→league→match ID→match 상세 순 호출이 로컬에서 성공하고, 각 호출의 라우팅(asia/kr)이 맞게 나감을 확인.
+> ⚠️ **Spring Boot 4.1은 Jackson 3을 씁니다** (`tools.jackson.*`, groupId `tools.jackson.core` — 기존 Jackson 2의 `com.fasterxml.jackson.databind`가 아님). `RiotMatchResponse.perks`가 `tools.jackson.databind.JsonNode`인 이유. 이후 Jackson 관련 코드 작성 시 계속 적용됨.
+
+**완료 기준**: ✅ `RiotApiClientImplTest`(`MockRestServiceServer`를 `RestClient.Builder`에 bind, 실제 API 키 불필요)로 5개 메서드 전부 라우팅(asia/kr)·헤더(`X-Riot-Token`)·응답 매핑 확인. 실제 Riot API 대상 라이브 스모크 테스트는 별도(아래 §6 참고).
 
 ### 3. 소환사 조회 서비스 (DB 캐시 우선) — 4~5h
 
