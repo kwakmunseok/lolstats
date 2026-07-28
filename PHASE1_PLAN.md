@@ -96,7 +96,7 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 > ⚠️ **Spring Boot 4.1은 Jackson 3을 씁니다** (`tools.jackson.*`, groupId `tools.jackson.core` — 기존 Jackson 2의 `com.fasterxml.jackson.databind`가 아님). `RiotMatchResponse.perks`가 `tools.jackson.databind.JsonNode`인 이유. 이후 Jackson 관련 코드 작성 시 계속 적용됨.
 
-**완료 기준**: ✅ `RiotApiClientImplTest`(`MockRestServiceServer`를 `RestClient.Builder`에 bind, 실제 API 키 불필요)로 5개 메서드 전부 라우팅(asia/kr)·헤더(`X-Riot-Token`)·응답 매핑 확인. 실제 Riot API 대상 라이브 스모크 테스트는 별도(아래 §6 참고).
+**완료 기준**: ✅ `RiotApiClientImplTest`(`MockRestServiceServer`, 실제 API 키 불필요)로 5개 메서드 전부 라우팅(asia/kr)·헤더(`X-Riot-Token`)·응답 매핑 확인. ✅ 실제 Development Key + "Hide on bush#KR1"로 account→summoner→league→match ids→match 상세 전체 체인 라이브 curl 검증까지 완료 — DTO 필드명이 실제 Riot 응답과 전부 일치(`riotIdGameName`/`riotIdTagline`/`item0~6`/`perks.statPerks`/`perks.styles` 등).
 
 ### 3. 소환사 조회 서비스 (DB 캐시 우선) — 4~5h
 
