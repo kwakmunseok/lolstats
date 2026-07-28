@@ -58,14 +58,14 @@ Data Dragon 연동(5)은 Riot API·DB와 무관하므로 2번 이후 아무 때�
 
 ### 0. 프로젝트 초기 세팅 — 2~3h
 
-- [ ] Spring Initializr로 프로젝트 생성: Spring Web, Spring Data JPA, MySQL Driver, Validation, Thymeleaf, Lombok
-- [ ] 패키지 구조 확정 (예: `domain`, `repository`, `service`, `controller`, `client`(Riot/ddragon), `dto`, `config`)
-- [ ] `application-dev.yml` / `application-prod.yml` 프로필 분리 (PROJECT_PLAN.md §9.5와 정합 — Phase 1은 dev만 실사용)
-- [ ] Riot API base URL 2종을 설정값으로 분리: `riot.api.platform-url=https://kr.api.riotgames.com`, `riot.api.regional-url=https://asia.api.riotgames.com` (§4 라우팅 노트)
-- [ ] Riot API Key를 환경변수/`.env`로 주입 (커밋 금지 — §9.5와 동일 기준을 Phase 1부터 적용)
-- [ ] Git 저장소 초기화, 첫 커밋
+- [x] Spring Initializr로 프로젝트 생성: Spring Web, Spring Data JPA, MySQL Driver, Validation, Thymeleaf, Lombok (Spring Boot 4.1.0 — 결정 사항 참고)
+- [x] 패키지 구조 확정 — `domain`/`repository`/`service`/`controller`/`client`/`dto`/`config`로 결정, 실제 디렉터리는 Task 1~2에서 첫 클래스와 함께 생성(빈 패키지 미리 안 만듦)
+- [x] `application-dev.yml` / `application-prod.yml` 프로필 분리 (PROJECT_PLAN.md §9.5와 정합 — Phase 1은 dev만 실사용)
+- [x] Riot API base URL 2종을 설정값으로 분리: `riot.api.platform-url`(kr), `riot.api.regional-url`(asia) (§4 라우팅 노트)
+- [x] Riot API Key를 환경변수/`.env`로 주입 (커밋 금지 — §9.5와 동일 기준을 Phase 1부터 적용, `.env.example`로 문서화)
+- [x] Git 저장소 초기화, 첫 커밋 (`cdd4213`)
 
-**완료 기준**: `./gradlew bootRun`으로 앱이 뜨고, `/actuator/health`(또는 임시 헬로 엔드포인트)가 응답한다.
+**완료 기준**: ✅ `./gradlew test`(컨텍스트 로드 테스트)가 로컬 MySQL(docker-compose, 포트 3307 — 호스트 3306이 기존 MySQL 서비스로 사용 중이라 회피)에 연결해 BUILD SUCCESSFUL.
 
 ### 1. DB 스키마 / JPA 엔티티 — 2~3h
 
