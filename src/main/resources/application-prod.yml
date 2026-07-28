@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+server:
+  port: 8080
+
+riot:
+  api:
+    key: ${RIOT_API_KEY}
+    platform-url: https://kr.api.riotgames.com
+    regional-url: https://asia.api.riotgames.com
+
+app:
+  cache:
+    summoner-ttl-minutes: 10
