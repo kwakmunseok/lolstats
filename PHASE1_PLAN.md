@@ -5,9 +5,28 @@
 
 ## 0. 착수 전 확인 사항
 
-- [ ] Riot Developer Portal에서 **Development API Key** 발급 (24h 만료 — 매일 갱신 필요, PROJECT_PLAN.md §11)
-- [ ] 로컬 MySQL 실행 방법 확정 — Redis는 Phase 2부터이므로 **Phase 1은 docker-compose로 MySQL만** 띄우면 됨
-- [ ] 패키지 루트(GroupId) 확정 — 아래 예시는 `com.lolstats`로 가정, 실제 값으로 치환
+- [x] Riot Developer Portal에서 **Development API Key** 발급 (24h 만료 — 매일 갱신 필요, PROJECT_PLAN.md §11). `.env`의 `RIOT_API_KEY`에 보관 중 — **재발급 직후 몇 분간 401 "Unknown apikey"가 뜰 수 있음(전파 지연), 재시도하면 정상화됨**. Personal Key는 3주차 배포 시점에 별도 신청 예정(§9.6)
+- [x] 로컬 MySQL 실행 방법 확정 — docker-compose로 MySQL만 (Redis는 Phase 2). **로컬에 이미 다른 MySQL 서비스가 3306을 쓰고 있어 호스트 포트는 3307**로 변경(`docker-compose.yml`, `application-dev.yml` 반영됨)
+- [x] 패키지 루트(GroupId) 확정 — `com.lolstats`
+
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 8까지 완료)
+
+**Phase 1 진행: Task 0~8 완료 / Task 9(화면)부터 재개 / Task 10(테스트 정리)은 각 Task와 병행 중이라 이미 상당 부분 충족**
+
+다음 세션 시작 시 순서:
+1. Docker Desktop 켜져 있는지 확인 → `docker compose up -d mysql` (컨테이너/볼륨은 유지되므로 데이터 그대로 살아있음)
+2. `.env`의 `RIOT_API_KEY`가 아직 유효한지 확인 — Dev Key는 24h 만료라 하루 지났으면 포털에서 재발급 필요
+3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(34개) 통과 확인 후 Task 9 착수
+
+**현재 로컬 DB 상태**: "Hide on bush#KR1" 소환사 1건 + 매치 20건이 실제로 쌓여 있음(Task 3/4/7 라이브 검증 중 자연스럽게 쌓인 실데이터, 의도적으로 안 지움) — Task 9 화면 작업 시 바로 렌더링 대상으로 쓸 수 있음.
+
+**다음 작업**: Task 9(§3 하단) — 화면 3종(메인/프로필/매치 상세), FE 검증(HTML5 maxlength/pattern)이 Task 8에서 이월되어 메인 화면 체크리스트에 포함됨.
+
+**이번 세션에서 발견해 코드/문서에 이미 반영된 것들** (재발견 방지용 기록):
+- Spring Boot 3.x는 2026-07-28 기준 start.spring.io에서 생성 자체가 막혀 있음(EOL) → **4.1.0으로 변경**(계획서 원안은 3.x). Jackson도 3.x(`tools.jackson.*` — 기존 `com.fasterxml.jackson.databind` 아님)로 같이 바뀜, `JsonNode` 등 임포트 시 주의
+- IntelliJ의 dotenv 플러그인이 `.env` 열람 시 `.env.local`/`.env.dev` 등 변형 파일을 자동 생성 + 내용 복사함 → `.gitignore`를 `.env.*`(단, `.env.example`은 예외)로 넓혀둠. **실키는 반드시 `.env`에 넣을 것, `.env.example`은 템플릿(빈 값) 유지**
+- 검증 실패(`@Validated` + `@Size`)가 핸들러 없으면 400이 아니라 500으로 새는 실버그가 있었음 → `ApiExceptionHandler` + `spring.mvc.problemdetails.enabled=true`로 수정 완료(Task 8)
+- 각 Task 완료 후 실제 서버+실 MySQL+실 Riot API로 라이브 검증하는 패턴을 계속 사용 중(임시 테스트 파일은 확인 후 삭제, 커밋 안 함) — Task 9도 동일하게 브라우저로 직접 확인 예정
 
 ## 1. 이 문서 범위에 포함되지 않는 것 (Phase 2 이후)
 
