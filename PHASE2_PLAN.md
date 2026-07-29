@@ -10,14 +10,14 @@
 - [ ] Bucket4j 의존성 확정 — `bucket4j-core` 최신 안정판(단일 인스턴스라 `bucket4j-redis` 통합 불필요 — PROJECT_PLAN.md §4 Phase 2 명시). Spring Boot 4.1 신규 버전이라 착수 시점에 Maven Central에서 최신 버전·Java 17 호환 재확인 필요(PHASE1_PLAN.md §5의 Spring Boot 버전 변경 건과 동일한 이유로 미리 못 박지 않음)
 - [ ] Redis 사용 방식 확정 — **Spring Cache 추상화(`@Cacheable` 등) 사용 안 함**. `StringRedisTemplate`으로 `SETNX`/`INCR`/`EXPIRE`/`ZINCRBY`/`ZREVRANGE` 원자 연산을 직접 호출(PROJECT_PLAN.md §2-6 학습 목적 — Redis 관용 패턴을 손으로 익히는 게 목적이라 추상화가 가리면 안 됨)
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 3까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 4까지 완료)
 
-**Task 0(Redis)~3(백그라운드 수집 큐) 완료 / Task 4([전적 갱신] 버튼)부터 재개**
+**Task 0(Redis)~4([전적 갱신] 버튼) 완료 / Task 5(인기 검색어 Redis ZSet 전환)부터 재개**
 
 다음 세션 시작 시 순서:
 1. `docker compose up -d` — MySQL + Redis 둘 다 기동(볼륨 유지, 데이터 그대로)
 2. `.env`의 `RIOT_API_KEY` 유효성 확인(24h 만료)
-3. `RIOT_API_KEY=<키> ./gradlew test`로 40개 통과 확인 후 Task 4 착수
+3. `RIOT_API_KEY=<키> ./gradlew test`로 44개 통과 확인 후 Task 5 착수
 
 **참고**: `RiotApiConfig`의 두 `RestClient` 빈이 이제 전역 Bucket4j 인터셉터를 거침 — 검색을 연달아 여러 번 하면(신규 소환사 1명 = 최대 24회 호출) 두 번째 소환사부터 체감 지연이 생길 수 있음(정상 동작, 라이브 테스트 시 참고).
 
@@ -111,10 +111,11 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 ### 4. [전적 갱신] 버튼 — 2~3h
 
-- [ ] `POST /api/summoners/{summonerId}/refresh` — TTL 무관 강제 갱신(소환사 정보 즉시 갱신 + 신규 매치 큐잉)
-- [ ] 쿨다운: `Redis SET NX EX cooldown:{summonerId}` — **큐잉 성공 후에 설정**(요청 진입 시점에 걸면 큐잉이 429/장애로 실패해도 쿨다운만 걸려 N분간 재시도 불가 — PROJECT_PLAN.md §4 명시)
+- [x] `POST /api/summoners/{summonerId}/refresh` — `SummonerService.refresh(summonerId)`가 캐시 TTL 무관하게 항상 `fetchAndUpsert` 호출(기존 `findOrFetch`의 캐시 체크 로직 재사용 안 하고 우회) + `SummonerController`가 Task 3와 동일한 `planCollection`+`enqueue` 패턴으로 신규 매치 큐잉(두 엔드포인트가 중복하던 이 로직을 `triggerCollectionIfNeeded` private 헬퍼로 추출)
+- [x] 쿨다운: `Redis SET cooldown:{summonerId} EX 60` — 컨트롤러가 `isRefreshCoolingDown`으로 먼저 게이트(있으면 즉시 429), 성공 경로 맨 마지막 줄에서만 `startRefreshCooldown` 호출 — **`refresh()`나 `enqueue` 전에 예외가 나면 자연스럽게(별도 try/catch 없이) 쿨다운 설정 줄까지 못 감**(PROJECT_PLAN.md §4 명시 순서 그대로). 쿨다운 길이는 계획서에 구체 수치가 없어 60초로 확정 — 소환사 캐시 TTL(10분)과 달리 "명시적 사용자 액션이라 종종 눌러도 되지만 연타는 막는" 용도라 훨씬 짧게 잡음
+- [x] 거부 응답 상태 코드는 **429**로 확정(계획서에 "429 또는 409 등"으로 열려 있었음) — Riot 자체 레이트리밋에도 이미 429를 쓰고 있어 "지금은 너무 잦다"는 의미를 일관되게 전달
 
-**완료 기준**: 연타 시 쿨다운 기간 동안 명확한 거부 응답(429 또는 409 등 — 구현 시 확정), 큐잉 자체가 실패하면 쿨다운이 걸리지 않는 것 라이브 확인.
+**완료 기준**: ✅ 실제 서버로 확인 — 첫 갱신 200 → 즉시 재요청 429(`{"title":"Too Many Requests","detail":"잠시 후 다시 시도해주세요"}`) → Redis `TTL cooldown:7`이 약 60초로 설정됨 확인. 존재하지 않는 `summonerId`로 갱신 시 404 + `cooldown:9999` 키가 아예 안 생기는 것 확인(실패 시 쿨다운 미설정 — 컨트롤러 메서드가 선형이라 위쪽에서 예외가 나면 마지막 줄의 쿨다운 설정 자체가 실행되지 않는 구조로 보장됨). 전체 테스트 44개 통과.
 
 ### 5. 인기 검색어 Redis ZSet 전환 — 2~3h
 
@@ -167,7 +168,7 @@ PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 | Bucket4j | 4~5h | | 07/29 | |
 | 429 재시도 | 3~4h | | 07/29 | |
 | 백그라운드 큐 | 6~8h | | 07/29 | 실동작 검증 중 실제 버그 2건 발견+수정(트랜잭션 미흡, 워커 예외 안전망) — 추정대로 검증 비중이 컸음 |
-| 전적 갱신 버튼 | 2~3h | | | |
+| 전적 갱신 버튼 | 2~3h | | 07/29 | |
 | 인기 검색어 Redis 전환 | 2~3h | | | |
 | per-IP 제한 | 2~3h | | | |
 | 테스트 정리 | 1~2h | | | |

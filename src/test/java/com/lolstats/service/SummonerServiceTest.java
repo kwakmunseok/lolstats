@@ -12,14 +12,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -36,12 +43,16 @@ class SummonerServiceTest {
     private SearchCountRepository searchCountRepository;
     @Mock
     private RiotApiClient riotApiClient;
+    @Mock
+    private StringRedisTemplate redisTemplate;
+    @Mock
+    private ValueOperations<String, String> valueOperations;
 
     private SummonerService service;
 
     @BeforeEach
     void setUp() {
-        service = new SummonerService(summonerRepository, searchCountRepository, riotApiClient, 10);
+        service = new SummonerService(summonerRepository, searchCountRepository, riotApiClient, redisTemplate, 10);
 
         // Mimics JPA assigning a generated id on first insert; tests override with
         // pre-set ids where a row is meant to already exist.
@@ -192,5 +203,52 @@ class SummonerServiceTest {
 
         assertEquals(1, result.size());
         assertEquals("Faker", result.get(0).getGameName());
+    }
+
+    @Test
+    void refresh_refetchesFromRiotEvenThoughCacheIsFresh() {
+        Summoner fresh = Summoner.builder()
+                .id(1L).puuid("puuid-1").gameName("Hide on bush").tagLine("KR1")
+                .updatedAt(Instant.now()) // well within TTL - a plain findOrFetch would skip Riot entirely
+                .build();
+        when(summonerRepository.findById(1L)).thenReturn(Optional.of(fresh));
+        when(riotApiClient.getAccountByRiotId("Hide on bush", "KR1"))
+                .thenReturn(new RiotAccountResponse("puuid-1", "Hide on bush", "KR1"));
+        when(summonerRepository.findByPuuid("puuid-1")).thenReturn(Optional.of(fresh));
+        when(riotApiClient.getSummonerByPuuid("puuid-1"))
+                .thenReturn(new RiotSummonerResponse("puuid-1", 4568, 613));
+        when(riotApiClient.getLeagueEntriesByPuuid("puuid-1")).thenReturn(List.of());
+        when(searchCountRepository.findById(1L)).thenReturn(Optional.empty());
+
+        Summoner result = service.refresh(1L);
+
+        assertEquals(613, result.getSummonerLevel());
+        verify(riotApiClient).getAccountByRiotId("Hide on bush", "KR1");
+    }
+
+    @Test
+    void refresh_unknownSummonerId_throwsNotFound() {
+        when(summonerRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThrows(ResponseStatusException.class, () -> service.refresh(404L));
+        verifyNoInteractions(riotApiClient);
+    }
+
+    @Test
+    void isRefreshCoolingDown_readsCooldownKey() {
+        when(redisTemplate.hasKey("cooldown:1")).thenReturn(true);
+        when(redisTemplate.hasKey("cooldown:2")).thenReturn(false);
+
+        assertTrue(service.isRefreshCoolingDown(1L));
+        assertFalse(service.isRefreshCoolingDown(2L));
+    }
+
+    @Test
+    void startRefreshCooldown_setsSixtySecondTtl() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        service.startRefreshCooldown(1L);
+
+        verify(valueOperations).set("cooldown:1", "1", Duration.ofSeconds(60));
     }
 }

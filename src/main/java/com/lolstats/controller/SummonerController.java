@@ -6,12 +6,15 @@ import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
 import com.lolstats.service.SummonerService;
 import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -41,11 +44,31 @@ public class SummonerController {
         Summoner summoner = summonerService.findOrFetch(gameName, tagLine);
         // Response returns immediately with whatever's cached; missing matches are handed to
         // the background queue instead of fetched synchronously (Phase 2 Task 3).
-        MatchService.CollectionPlan plan = matchService.planCollection(summoner.getPuuid());
-        if (!plan.missingMatchIds().isEmpty()) {
-            matchCollectionQueue.enqueue(summoner.getPuuid(), plan.totalCount());
-        }
+        triggerCollectionIfNeeded(summoner.getPuuid());
         return SummonerResponse.from(summoner);
+    }
+
+    // TTL 무관 강제 갱신 (PHASE2_PLAN.md Task 4). Cooldown check is the gate before doing any
+    // work; the cooldown itself only gets set after the refresh + enqueue below succeed, so a
+    // failed refresh (Riot error, etc.) doesn't cost the user the cooldown window.
+    @PostMapping("/{summonerId}/refresh")
+    public SummonerResponse refresh(@PathVariable Long summonerId) {
+        if (summonerService.isRefreshCoolingDown(summonerId)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해주세요");
+        }
+
+        Summoner summoner = summonerService.refresh(summonerId);
+        triggerCollectionIfNeeded(summoner.getPuuid());
+        summonerService.startRefreshCooldown(summonerId);
+
+        return SummonerResponse.from(summoner);
+    }
+
+    private void triggerCollectionIfNeeded(String puuid) {
+        MatchService.CollectionPlan plan = matchService.planCollection(puuid);
+        if (!plan.missingMatchIds().isEmpty()) {
+            matchCollectionQueue.enqueue(puuid, plan.totalCount());
+        }
     }
 
     @GetMapping("/autocomplete")

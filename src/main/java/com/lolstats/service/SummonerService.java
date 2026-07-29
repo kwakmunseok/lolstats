@@ -10,8 +10,12 @@ import com.lolstats.repository.SearchCountRepository;
 import com.lolstats.repository.SummonerRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
@@ -25,19 +29,28 @@ public class SummonerService {
 
     private static final String SOLO_QUEUE = "RANKED_SOLO_5x5";
 
+    // [전적 갱신] cooldown - short on purpose (unlike the 10min search cache): it's an
+    // explicit user action meant to be usable fairly often, just not spammable
+    // (PHASE2_PLAN.md Task 4 결정 사항).
+    private static final String COOLDOWN_PREFIX = "cooldown:";
+    private static final Duration COOLDOWN_TTL = Duration.ofSeconds(60);
+
     private final SummonerRepository summonerRepository;
     private final SearchCountRepository searchCountRepository;
     private final RiotApiClient riotApiClient;
+    private final StringRedisTemplate redisTemplate;
     private final long ttlMinutes;
 
     public SummonerService(
             SummonerRepository summonerRepository,
             SearchCountRepository searchCountRepository,
             RiotApiClient riotApiClient,
+            StringRedisTemplate redisTemplate,
             @Value("${app.cache.summoner-ttl-minutes}") long ttlMinutes) {
         this.summonerRepository = summonerRepository;
         this.searchCountRepository = searchCountRepository;
         this.riotApiClient = riotApiClient;
+        this.redisTemplate = redisTemplate;
         this.ttlMinutes = ttlMinutes;
     }
 
@@ -50,6 +63,28 @@ public class SummonerService {
 
         recordSearch(summoner);
         return summoner;
+    }
+
+    // TTL 무관 강제 갱신 ([전적 갱신] 버튼 - PHASE2_PLAN.md Task 4). Cooldown gating and
+    // match re-collection are the caller's job (SummonerController), same split as
+    // findOrFetch()/MatchService.planCollection() for a normal search.
+    public Summoner refresh(Long summonerId) {
+        Summoner existing = summonerRepository.findById(summonerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "summoner not found: " + summonerId));
+        Summoner refreshed = fetchAndUpsert(existing.getGameName(), existing.getTagLine());
+        recordSearch(refreshed);
+        return refreshed;
+    }
+
+    public boolean isRefreshCoolingDown(Long summonerId) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(COOLDOWN_PREFIX + summonerId));
+    }
+
+    // Called only after a refresh (including its match re-collection enqueue) has actually
+    // gone through - a failed refresh shouldn't cost the user the cooldown window
+    // (PROJECT_PLAN.md §4 Phase 2: "쿨다운은 큐잉 성공 후에 설정한다").
+    public void startRefreshCooldown(Long summonerId) {
+        redisTemplate.opsForValue().set(COOLDOWN_PREFIX + summonerId, "1", COOLDOWN_TTL);
     }
 
     private boolean isFresh(Summoner summoner) {
