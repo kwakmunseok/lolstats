@@ -65,8 +65,9 @@ public class PageController {
         // Sync, best-effort collection - same trigger point as SummonerController's API route.
         matchService.collectRecentMatches(summoner.getPuuid());
 
-        List<MatchParticipant> own = matchParticipantRepository.findByPuuid(
-                summoner.getPuuid(), PageRequest.of(0, 20, Sort.by("match.gameCreation").descending())).getContent();
+        List<MatchParticipant> own = matchParticipantRepository.findByPuuidAndMatch_QueueTypeIn(
+                summoner.getPuuid(), MatchService.RIFT_QUEUE_TYPES,
+                PageRequest.of(0, 20, Sort.by("match.gameCreation").descending())).getContent();
 
         model.addAttribute("summoner", summoner);
         model.addAttribute("tierEmblemUrl", TierEmblems.imageUrl(summoner.getTier()));
@@ -87,10 +88,11 @@ public class PageController {
         model.addAttribute("playedAt", PLAYED_AT_FORMAT.format(match.getGameCreation()));
         model.addAttribute("duration", formatDuration(match.getGameDuration()));
         model.addAttribute("queueType", match.getQueueType());
-        // A fixed 5-vs-5 split assumed Summoner's Rift; Arena (queue 1750) has 16-18
-        // participants in 2-player teams, so a single win/loss-colored list is the one
-        // layout that's correct for every queue without persisting a team id.
-        model.addAttribute("participants", participants.stream().map(this::toParticipantView).toList());
+        // Only Rift matches are ever linked to from the match list (RIFT_QUEUE_TYPES filter
+        // above), so this is always 10 participants; Riot's response orders them team100
+        // (first 5) then team200 (last 5), and saveAll()/findByMatchId preserve that order.
+        model.addAttribute("team1", participants.stream().limit(5).map(this::toParticipantView).toList());
+        model.addAttribute("team2", participants.stream().skip(5).map(this::toParticipantView).toList());
         return "match-detail";
     }
 

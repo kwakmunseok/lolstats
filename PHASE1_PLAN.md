@@ -18,7 +18,7 @@
 2. `.env`의 `RIOT_API_KEY`가 아직 유효한지 확인 — Dev Key는 24h 만료라 하루 지났으면 포털에서 재발급 필요
 3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(34개) 통과 확인 후 Task 10 착수
 
-**현재 로컬 DB 상태**: "Hide on bush#KR1" 소환사 1건 + 매치 21건. 이 중 3건은 `queue_type=1750`(아레나) 매치라 참가자가 16~18명 — 화면은 이를 정상 처리하도록 수정됨(아래 참고).
+**현재 로컬 DB 상태**: "Hide on bush#KR1" 소환사 1건 + 매치 21건(협곡 18건 + 아레나 3건). 아레나 3건은 DB엔 그대로 남아있지만 조회 시 `RIFT_QUEUE_TYPES` 필터로 제외됨(화면·API 둘 다) — 의도된 동작.
 
 **다음 작업**: Task 10 — SummonerService/매치 수집/자동완성/DataDragon 매핑 테스트가 이미 각 Task에서 작성돼 있는지 마지막으로 훑고 빈틈만 채우기. 이후 §4 Phase 1 DoD 3개 항목(신규 검색→프로필→매치 상세 브라우저 확인, 재검색 시 캐시로 API 미호출 로그 확인, 나머지 항목) 최종 점검.
 
@@ -27,7 +27,7 @@
 - IntelliJ의 dotenv 플러그인이 `.env` 열람 시 `.env.local`/`.env.dev` 등 변형 파일을 자동 생성 + 내용 복사함 → `.gitignore`를 `.env.*`(단, `.env.example`은 예외)로 넓혀둠. **실키는 반드시 `.env`에 넣을 것, `.env.example`은 템플릿(빈 값) 유지**
 - 검증 실패(`@Validated` + `@Size`)가 핸들러 없으면 400이 아니라 500으로 새는 실버그가 있었음 → `ApiExceptionHandler` + `spring.mvc.problemdetails.enabled=true`로 수정 완료(Task 8)
 - 각 Task 완료 후 실제 서버+실 MySQL+실 Riot API로 라이브 검증하는 패턴을 계속 사용 중(임시 테스트 파일은 확인 후 삭제, 커밋 안 함)
-- **아레나(`queue_type=1750`) 매치는 참가자가 10명이 아니라 16~18명, 2인 팀 단위**라 매치 상세 화면에서 "앞 5/뒤 5" 같은 고정 분할을 절대 가정하면 안 됨(Task 9에서 실사용 중 발견 — 처음엔 데이터 중복 버그로 오인했음). MATCH_PARTICIPANTS에 팀 id가 없으므로 화면은 승/패 색상만으로 구분하는 단일 목록으로 렌더링
+- **매치 목록/화면은 협곡(Summoner's Rift)만 대상** — PROJECT_PLAN.md §4 MVP 스코프 결정(칼바람도 동일하게 제외). 아레나(`queue_type=1750`, 참가자 16~18명 2인 팀 단위) 데이터가 섞여 있어 Task 9에서 매치 상세 "앞 5/뒤 5" 가정이 깨지는 걸 발견했을 때, 처음엔 화면을 아레나에 맞춰 일반화하려 했으나 스코프 결정을 다시 확인하고 **조회 필터(`MatchService.RIFT_QUEUE_TYPES`)로 아레나/칼바람을 걸러내는 방향으로 정정**. 저장은 그대로 다 함(재요청 금지 원칙 유지), 필터는 조회 시점에만 적용
 - 저장소 GitHub 공개: https://github.com/kwakmunseok/lolstats (Riot Personal API Key 신청용)
 
 ## 1. 이 문서 범위에 포함되지 않는 것 (Phase 2 이후)
@@ -133,7 +133,7 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 - [x] 매치 ID 20개 목록 조회 → DB에 이미 있는 `riot_match_id`는 필터링(원칙 ① — 재요청 금지)
 - [x] 없는 매치 중 **5건만**(3~5 범위의 상단) 상세 조회 후 MATCHES/MATCH_PARTICIPANTS 저장
-- [x] MATCH_PARTICIPANTS 저장 시 `items_json`/`runes_json`/`spell1_id`/`spell2_id` 함께 저장 (Phase 1 필수 — §6). `queue_type`은 Riot의 원본 `queueId`(정수, 예: `"420"`)를 문자열 그대로 저장 — 랭크/드래프트 분류는 Phase 3에서 이 값 기준으로 처리(지금 임의로 이름 매핑하면 오분류 위험)
+- [x] MATCH_PARTICIPANTS 저장 시 `items_json`/`runes_json`/`spell1_id`/`spell2_id` 함께 저장 (Phase 1 필수 — §6). `queue_type`은 Riot의 원본 `queueId`(정수, 예: `"420"`)를 문자열 그대로 저장 — 랭크/드래프트 분류는 Phase 3에서 이 값 기준으로 처리(지금 임의로 이름 매핑하면 오분류 위험). **수집(저장) 자체는 큐 종류를 가리지 않음** — 협곡 외(아레나/칼바람 등) 제외는 Task 9에서 조회 시점 필터(`MatchService.RIFT_QUEUE_TYPES`)로 처리, 저장을 막으면 매번 같은 매치를 재조회하게 되어 원칙 ①에 위배
 - [x] 429 응답 처리: 가져온 만큼만 저장하고 남은 건 조용히 중단(에러로 죽지 않게) — "실패 허용" 명시대로
 - [x] `GET /api/summoners/{summonerId}/matches?page=&size=` 엔드포인트 (Phase 1은 `collecting` 필드 없이 DB에 있는 매치만 페이지네이션 반환, 수집 트리거 없음)
 - [x] `GET /api/matches/{riotMatchId}` 매치 상세 엔드포인트
@@ -185,7 +185,7 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 - `PageController`(신규, `@Controller`)가 `/api/*` REST 컨트롤러와 동일한 서비스 계층(`SummonerService`/`MatchService`/`DataDragonService`)을 직접 호출해 서버 렌더링 — 화면이 자체 HTTP로 `/api/*`를 호출하지 않음. 자동완성/인기 검색어만 메인 화면에서 JS `fetch`로 기존 `/api/summoners/autocomplete`, `/api/summoners/popular`를 그대로 재사용(중복 구현 없음)
 - 최근 검색어는 "프로필 화면 진입" 시점(profile.html의 인라인 스크립트)에 딱 한 곳에서만 localStorage에 기록 — 검색창 직접 입력/자동완성 클릭/북마크 직접 접속 등 모든 진입 경로를 이 한 지점이 공통으로 커버
 - 아이템(`items_json`)·룬(`runes_json`)은 저장된 원본 JSON을 `ObjectMapper.readValue`/`readTree`로 파싱해 Data Dragon 아이콘 URL로 변환하는 로직을 `PageController`에 추가(REST API의 `@JsonRawValue`와는 별개 경로 — 화면은 파싱된 Java 값이 필요하고 API는 원본 JSON 그대로가 필요해 목적이 다름)
-- **매치 상세 화면에서 "양 팀 5명씩" 가정이 틀렸음을 라이브 검증 중 실사용자가 발견**: `queue_type=1750`(아레나) 매치는 참가자가 16~18명이고 2인 팀 단위라 앞 5/뒤 5로 나누는 고정 분할이 맞지 않음(처음엔 데이터 중복 버그로 오인했으나 실제로는 정상 데이터). MATCH_PARTICIPANTS에 팀 id 컬럼이 없으므로(§6 스키마상 Phase 1에 불필요하다고 판단했던 부분) 팀 단위 렌더링 대신 **참가자 전원을 승/패 배경색만으로 구분하는 단일 목록**으로 변경 — 5v5든 아레나든 동일 로직으로 정확하게 표시됨
+- **라이브 검증 중 매치 상세가 "양 팀 5명씩" 가정과 안 맞는 매치가 있는 걸 발견** — 원인은 `queue_type=1750`(아레나) 매치가 목록에 섞여 있었기 때문(참가자 16~18명, 2인 팀 단위). 처음엔 화면을 아레나에 맞춰 일반화(승/패 단일 목록)하려 했으나, **PROJECT_PLAN.md §4 MVP 스코프가 애초에 협곡(Summoner's Rift) 데이터만 다루기로 되어 있었음**(칼바람도 동일 사유로 제외) — 화면을 데이터에 맞추는 대신 **데이터를 스코프에 맞게 필터링**하는 게 맞는 방향. `MatchService.RIFT_QUEUE_TYPES`(400/420/430/440) 상수를 추가해 `MatchParticipantRepository.findByPuuidAndMatch_QueueTypeIn`으로 프로필 화면·`/api/summoners/{id}/matches` 둘 다 협곡 큐만 반환하도록 통일. **수집(저장)은 그대로 전체 큐 다 저장** — 재요청 금지 원칙(①) 유지, 필터는 조회 시점에만 적용(협곡 외 매치를 저장 안 하면 다음 검색마다 같은 매치를 계속 재조회하게 됨). 매치 상세는 다시 "양 팀 5명씩" 원안대로 복원(목록에 뜨는 매치는 이제 항상 협곡 10명이라 안전)
 - 티어/랭크 정보가 없는 언랭크 소환자는 프로필 카드에 "언랭크"만 표시(엠블럼 이미지 생략)
 
 **완료 기준**: ✅ 브라우저(및 curl로 렌더된 HTML) 확인 — 닉네임 검색 → 프로필 → 매치 상세까지 클릭으로 이동. 실 데이터(챔피언/아이템/스펠/룬 아이콘)가 전부 실제 Data Dragon CDN URL로 렌더링됨을 확인. `/matches/{존재안함}` 404 확인.

@@ -10,10 +10,42 @@
         <span th:text="${playedAt}">2026-01-01</span>
     </p>
 
+    <h2 class="h6 text-primary">팀 1</h2>
     <div class="table-responsive mb-4">
         <table class="table table-sm align-middle">
             <tbody>
-            <tr th:each="p : ${participants}" th:classappend="${p.win} ? 'table-primary' : 'table-danger'">
+            <tr th:each="p : ${team1}" th:classappend="${p.win} ? 'table-primary' : 'table-danger'">
+                <td class="d-flex align-items-center gap-2">
+                    <img th:if="${p.championImageUrl}" th:src="${p.championImageUrl}" width="32" height="32"
+                         class="rounded" alt="">
+                    <span th:text="${p.championName}">Champion</span>
+                </td>
+                <td th:text="${p.gameName} + '#' + ${p.tagLine}">Name#TAG</td>
+                <td th:text="${p.kills} + ' / ' + ${p.deaths} + ' / ' + ${p.assists}">0 / 0 / 0</td>
+                <td>
+                    <img th:if="${p.spell1ImageUrl}" th:src="${p.spell1ImageUrl}" width="20" height="20" alt="">
+                    <img th:if="${p.spell2ImageUrl}" th:src="${p.spell2ImageUrl}" width="20" height="20" alt="">
+                </td>
+                <td>
+                    <img th:if="${p.keystoneIconUrl}" th:src="${p.keystoneIconUrl}" width="20" height="20" alt="">
+                    <img th:if="${p.secondaryStyleIconUrl}" th:src="${p.secondaryStyleIconUrl}" width="20"
+                         height="20" alt="">
+                </td>
+                <td>
+                    <span th:each="item : ${p.itemImageUrls}">
+                        <img th:if="${item}" th:src="${item}" width="24" height="24" class="rounded" alt="">
+                    </span>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2 class="h6 text-danger">팀 2</h2>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm align-middle">
+            <tbody>
+            <tr th:each="p : ${team2}" th:classappend="${p.win} ? 'table-primary' : 'table-danger'">
                 <td class="d-flex align-items-center gap-2">
                     <img th:if="${p.championImageUrl}" th:src="${p.championImageUrl}" width="32" height="32"
                          class="rounded" alt="">

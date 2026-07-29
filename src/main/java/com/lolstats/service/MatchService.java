@@ -21,6 +21,11 @@ public class MatchService {
     // 5 is the upper bound so a newly-searched summoner's history fills in fastest.
     private static final int DETAIL_FETCH_LIMIT = 5;
 
+    // Summoner's Rift only (PROJECT_PLAN.md §4 MVP scope: 협곡 데이터만, ARAM/Arena 등 제외).
+    // Normal Draft/Blind, Ranked Solo/Flex - Riot's numeric queueId, matching how queue_type
+    // is stored (Task 4 decision: raw queueId, no name mapping until Phase 3).
+    public static final List<String> RIFT_QUEUE_TYPES = List.of("400", "420", "430", "440");
+
     private final RiotApiClient riotApiClient;
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;

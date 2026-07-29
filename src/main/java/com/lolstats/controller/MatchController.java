@@ -8,6 +8,7 @@ import com.lolstats.dto.MatchSummaryResponse;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
 import com.lolstats.repository.SummonerRepository;
+import com.lolstats.service.MatchService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -51,7 +52,8 @@ public class MatchController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "summoner not found: " + summonerId));
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("match.gameCreation").descending());
-        return matchParticipantRepository.findByPuuid(summoner.getPuuid(), pageable)
+        return matchParticipantRepository.findByPuuidAndMatch_QueueTypeIn(
+                        summoner.getPuuid(), MatchService.RIFT_QUEUE_TYPES, pageable)
                 .map(MatchSummaryResponse::from);
     }
 
