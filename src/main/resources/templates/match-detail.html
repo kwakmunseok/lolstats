@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='매치 상세 - LoL Stats')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+<main class="container">
+    <p class="text-muted mb-3">
+        <span th:text="${queueType}">420</span> ·
+        <span th:text="${duration}">30:00</span> ·
+        <span th:text="${playedAt}">2026-01-01</span>
+    </p>
+
+    <div class="table-responsive mb-4">
+        <table class="table table-sm align-middle">
+            <tbody>
+            <tr th:each="p : ${participants}" th:classappend="${p.win} ? 'table-primary' : 'table-danger'">
+                <td class="d-flex align-items-center gap-2">
+                    <img th:if="${p.championImageUrl}" th:src="${p.championImageUrl}" width="32" height="32"
+                         class="rounded" alt="">
+                    <span th:text="${p.championName}">Champion</span>
+                </td>
+                <td th:text="${p.gameName} + '#' + ${p.tagLine}">Name#TAG</td>
+                <td th:text="${p.kills} + ' / ' + ${p.deaths} + ' / ' + ${p.assists}">0 / 0 / 0</td>
+                <td>
+                    <img th:if="${p.spell1ImageUrl}" th:src="${p.spell1ImageUrl}" width="20" height="20" alt="">
+                    <img th:if="${p.spell2ImageUrl}" th:src="${p.spell2ImageUrl}" width="20" height="20" alt="">
+                </td>
+                <td>
+                    <img th:if="${p.keystoneIconUrl}" th:src="${p.keystoneIconUrl}" width="20" height="20" alt="">
+                    <img th:if="${p.secondaryStyleIconUrl}" th:src="${p.secondaryStyleIconUrl}" width="20"
+                         height="20" alt="">
+                </td>
+                <td>
+                    <span th:each="item : ${p.itemImageUrls}">
+                        <img th:if="${item}" th:src="${item}" width="24" height="24" class="rounded" alt="">
+                    </span>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</main>
+</body>
+</html>

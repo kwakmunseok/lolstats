@@ -9,24 +9,26 @@
 - [x] 로컬 MySQL 실행 방법 확정 — docker-compose로 MySQL만 (Redis는 Phase 2). **로컬에 이미 다른 MySQL 서비스가 3306을 쓰고 있어 호스트 포트는 3307**로 변경(`docker-compose.yml`, `application-dev.yml` 반영됨)
 - [x] 패키지 루트(GroupId) 확정 — `com.lolstats`
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 8까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 9까지 완료)
 
-**Phase 1 진행: Task 0~8 완료 / Task 9(화면)부터 재개 / Task 10(테스트 정리)은 각 Task와 병행 중이라 이미 상당 부분 충족**
+**Phase 1 진행: Task 0~9 완료 / Task 10(테스트 정리) 마무리만 남음 — 이미 각 Task와 병행하며 대부분 충족된 상태라 빈틈만 확인하면 됨**
 
 다음 세션 시작 시 순서:
 1. Docker Desktop 켜져 있는지 확인 → `docker compose up -d mysql` (컨테이너/볼륨은 유지되므로 데이터 그대로 살아있음)
 2. `.env`의 `RIOT_API_KEY`가 아직 유효한지 확인 — Dev Key는 24h 만료라 하루 지났으면 포털에서 재발급 필요
-3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(34개) 통과 확인 후 Task 9 착수
+3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(34개) 통과 확인 후 Task 10 착수
 
-**현재 로컬 DB 상태**: "Hide on bush#KR1" 소환사 1건 + 매치 20건이 실제로 쌓여 있음(Task 3/4/7 라이브 검증 중 자연스럽게 쌓인 실데이터, 의도적으로 안 지움) — Task 9 화면 작업 시 바로 렌더링 대상으로 쓸 수 있음.
+**현재 로컬 DB 상태**: "Hide on bush#KR1" 소환사 1건 + 매치 21건. 이 중 3건은 `queue_type=1750`(아레나) 매치라 참가자가 16~18명 — 화면은 이를 정상 처리하도록 수정됨(아래 참고).
 
-**다음 작업**: Task 9(§3 하단) — 화면 3종(메인/프로필/매치 상세), FE 검증(HTML5 maxlength/pattern)이 Task 8에서 이월되어 메인 화면 체크리스트에 포함됨.
+**다음 작업**: Task 10 — SummonerService/매치 수집/자동완성/DataDragon 매핑 테스트가 이미 각 Task에서 작성돼 있는지 마지막으로 훑고 빈틈만 채우기. 이후 §4 Phase 1 DoD 3개 항목(신규 검색→프로필→매치 상세 브라우저 확인, 재검색 시 캐시로 API 미호출 로그 확인, 나머지 항목) 최종 점검.
 
 **이번 세션에서 발견해 코드/문서에 이미 반영된 것들** (재발견 방지용 기록):
 - Spring Boot 3.x는 2026-07-28 기준 start.spring.io에서 생성 자체가 막혀 있음(EOL) → **4.1.0으로 변경**(계획서 원안은 3.x). Jackson도 3.x(`tools.jackson.*` — 기존 `com.fasterxml.jackson.databind` 아님)로 같이 바뀜, `JsonNode` 등 임포트 시 주의
 - IntelliJ의 dotenv 플러그인이 `.env` 열람 시 `.env.local`/`.env.dev` 등 변형 파일을 자동 생성 + 내용 복사함 → `.gitignore`를 `.env.*`(단, `.env.example`은 예외)로 넓혀둠. **실키는 반드시 `.env`에 넣을 것, `.env.example`은 템플릿(빈 값) 유지**
 - 검증 실패(`@Validated` + `@Size`)가 핸들러 없으면 400이 아니라 500으로 새는 실버그가 있었음 → `ApiExceptionHandler` + `spring.mvc.problemdetails.enabled=true`로 수정 완료(Task 8)
-- 각 Task 완료 후 실제 서버+실 MySQL+실 Riot API로 라이브 검증하는 패턴을 계속 사용 중(임시 테스트 파일은 확인 후 삭제, 커밋 안 함) — Task 9도 동일하게 브라우저로 직접 확인 예정
+- 각 Task 완료 후 실제 서버+실 MySQL+실 Riot API로 라이브 검증하는 패턴을 계속 사용 중(임시 테스트 파일은 확인 후 삭제, 커밋 안 함)
+- **아레나(`queue_type=1750`) 매치는 참가자가 10명이 아니라 16~18명, 2인 팀 단위**라 매치 상세 화면에서 "앞 5/뒤 5" 같은 고정 분할을 절대 가정하면 안 됨(Task 9에서 실사용 중 발견 — 처음엔 데이터 중복 버그로 오인했음). MATCH_PARTICIPANTS에 팀 id가 없으므로 화면은 승/패 색상만으로 구분하는 단일 목록으로 렌더링
+- 저장소 GitHub 공개: https://github.com/kwakmunseok/lolstats (Riot Personal API Key 신청용)
 
 ## 1. 이 문서 범위에 포함되지 않는 것 (Phase 2 이후)
 
@@ -174,12 +176,19 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 ### 9. 화면 3종 (Thymeleaf + Bootstrap 5) — 6~8h
 
-- [ ] 메인 화면: 검색창(**HTML5 `maxlength`/`pattern` + JS 실시간 피드백 포함 — Task 8에서 이월**), 최근 검색어(로컬스토리지), 인기 검색어(§7 popular API 연동)
-- [ ] 프로필 화면: 티어 엠블럼/레벨/승률 요약(league-v4 값), 최근 매치 리스트(아이콘 기반 — 챔피언 초상화, 아이템 6칸, 룬, 스펠)
-- [ ] 매치 상세 화면: 양 팀 10명 KDA/아이템/룬 (MATCH_PARTICIPANTS 그대로 렌더링, 참가자 10명 중 검색 이력 없는 8~9명은 닉네임 스냅샷만 표시)
-- [ ] Bootstrap 5 CDN 연결, 카드/네비바/테이블 기본 컴포넌트로 구성 (커스텀 CSS 최소화 — §3 화면 기술 선택 이유)
+- [x] 메인 화면: 검색창(**HTML5 `maxlength`/`pattern` + JS 실시간 피드백 포함 — Task 8에서 이월**), 최근 검색어(로컬스토리지), 인기 검색어(§7 popular API 연동)
+- [x] 프로필 화면: 티어 엠블럼/레벨/승률 요약(league-v4 값), 최근 매치 리스트(아이콘 기반 — 챔피언 초상화, 아이템 6칸, 룬, 스펠)
+- [x] 매치 상세 화면: 참가자 전원 KDA/아이템/룬 (MATCH_PARTICIPANTS 그대로 렌더링, 검색 이력 없는 참가자는 닉네임 스냅샷만 표시)
+- [x] Bootstrap 5 CDN 연결, 카드/네비바/테이블 기본 컴포넌트로 구성 (커스텀 CSS 최소화 — §3 화면 기술 선택 이유)
 
-**완료 기준**: 브라우저에서 닉네임 검색 → 프로필 → 매치 상세까지 클릭으로 이동 가능.
+**구현 메모**:
+- `PageController`(신규, `@Controller`)가 `/api/*` REST 컨트롤러와 동일한 서비스 계층(`SummonerService`/`MatchService`/`DataDragonService`)을 직접 호출해 서버 렌더링 — 화면이 자체 HTTP로 `/api/*`를 호출하지 않음. 자동완성/인기 검색어만 메인 화면에서 JS `fetch`로 기존 `/api/summoners/autocomplete`, `/api/summoners/popular`를 그대로 재사용(중복 구현 없음)
+- 최근 검색어는 "프로필 화면 진입" 시점(profile.html의 인라인 스크립트)에 딱 한 곳에서만 localStorage에 기록 — 검색창 직접 입력/자동완성 클릭/북마크 직접 접속 등 모든 진입 경로를 이 한 지점이 공통으로 커버
+- 아이템(`items_json`)·룬(`runes_json`)은 저장된 원본 JSON을 `ObjectMapper.readValue`/`readTree`로 파싱해 Data Dragon 아이콘 URL로 변환하는 로직을 `PageController`에 추가(REST API의 `@JsonRawValue`와는 별개 경로 — 화면은 파싱된 Java 값이 필요하고 API는 원본 JSON 그대로가 필요해 목적이 다름)
+- **매치 상세 화면에서 "양 팀 5명씩" 가정이 틀렸음을 라이브 검증 중 실사용자가 발견**: `queue_type=1750`(아레나) 매치는 참가자가 16~18명이고 2인 팀 단위라 앞 5/뒤 5로 나누는 고정 분할이 맞지 않음(처음엔 데이터 중복 버그로 오인했으나 실제로는 정상 데이터). MATCH_PARTICIPANTS에 팀 id 컬럼이 없으므로(§6 스키마상 Phase 1에 불필요하다고 판단했던 부분) 팀 단위 렌더링 대신 **참가자 전원을 승/패 배경색만으로 구분하는 단일 목록**으로 변경 — 5v5든 아레나든 동일 로직으로 정확하게 표시됨
+- 티어/랭크 정보가 없는 언랭크 소환자는 프로필 카드에 "언랭크"만 표시(엠블럼 이미지 생략)
+
+**완료 기준**: ✅ 브라우저(및 curl로 렌더된 HTML) 확인 — 닉네임 검색 → 프로필 → 매치 상세까지 클릭으로 이동. 실 데이터(챔피언/아이템/스펠/룬 아이콘)가 전부 실제 Data Dragon CDN URL로 렌더링됨을 확인. `/matches/{존재안함}` 404 확인.
 
 ### 10. 테스트 정리 — 항목별 병행 + 마무리 1~2h
 
