@@ -9,7 +9,7 @@
 | Product Name* | `LoL Stats` (계획서 가칭 — 확정 이름 있으면 그걸로) |
 | Product Description* | 아래 초안 붙여넣기 (**GitHub URL 한 줄 추가**) |
 | Product Group* | `Default Group` (기본값 유지) |
-| Product URL | GitHub repo 주소 (선택 필드 — repo 생성 후 기입) |
+| Product URL | https://github.com/kwakmunseok/lolstats |
 | Product Game Focus* | `League of Legends` |
 
 ## Product Description (복사용)
@@ -34,7 +34,7 @@ collection queue.
 This is a non-commercial project for my own use and backend development
 practice. It will not be promoted publicly.
 
-Source code: https://github.com/{계정명}/{repo명}
+Source code: https://github.com/kwakmunseok/lolstats
 ```
 
 ## 신청 시 참고
@@ -44,4 +44,4 @@ Source code: https://github.com/{계정명}/{repo명}
 - 승인되면 포털 대시보드의 해당 앱(APPS) 페이지에서 키 확인
 - **정책 유의**: Personal Key로 "public consumption"(오픈 알파/베타 포함) 운영 금지. 배포 URL은 학습·본인 확인용으로만 쓰고 불특정 다수 대상 홍보 금지 — 공개 서비스 전환 시 Production Key 필요 (계획서 §11 각주)
 - GitHub repo는 **API 키 커밋 금지** 상태로 올릴 것 (`.env` / application-*.yml 시크릿 분리 — 계획서 §9.5). 키가 커밋된 repo를 URL로 제출하면 그 자체가 정책 위반("properly secure your API key")
-```
+  - ✅ 2026-07-29: repo public 게시 완료, `.env`/`.env.*` gitignore 처리 + 전체 히스토리 시크릿 스캔 완료 (커밋된 키 없음)
