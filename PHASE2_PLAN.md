@@ -10,16 +10,18 @@
 - [ ] Bucket4j 의존성 확정 — `bucket4j-core` 최신 안정판(단일 인스턴스라 `bucket4j-redis` 통합 불필요 — PROJECT_PLAN.md §4 Phase 2 명시). Spring Boot 4.1 신규 버전이라 착수 시점에 Maven Central에서 최신 버전·Java 17 호환 재확인 필요(PHASE1_PLAN.md §5의 Spring Boot 버전 변경 건과 동일한 이유로 미리 못 박지 않음)
 - [ ] Redis 사용 방식 확정 — **Spring Cache 추상화(`@Cacheable` 등) 사용 안 함**. `StringRedisTemplate`으로 `SETNX`/`INCR`/`EXPIRE`/`ZINCRBY`/`ZREVRANGE` 원자 연산을 직접 호출(PROJECT_PLAN.md §2-6 학습 목적 — Redis 관용 패턴을 손으로 익히는 게 목적이라 추상화가 가리면 안 됨)
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 6까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Phase 2 완료)
 
-**Task 0(Redis)~6(per-IP 요청 제한) 완료 / Task 7(캐시 무효화 전략 점검)부터 재개**
+**Phase 2 전체 완료 (Task 0~8) — §4 Definition of Done 4개 항목 전부 충족. 다음 세션은 Phase 3(§4 통계/티어 이력)부터 — 별도 계획서 작성 필요(PHASE3_PLAN.md 없음)**
 
 다음 세션 시작 시 순서:
 1. `docker compose up -d` — MySQL + Redis 둘 다 기동(볼륨 유지, 데이터 그대로)
 2. `.env`의 `RIOT_API_KEY` 유효성 확인(24h 만료 — 재발급 직후엔 몇 분간 401 "Unknown apikey"가 뜰 수 있음, 전파 지연이니 재시도만 하면 됨, API 문제 아님)
-3. `RIOT_API_KEY=<키> ./gradlew test`로 57개 통과 확인 후 Task 7 착수
+3. `RIOT_API_KEY=<키> ./gradlew test`로 58개 통과 확인 후 Phase 3 계획 수립부터 착수
 
 **중요 설정(재발견 방지)**: `application-dev.yml`/`application-prod.yml`에 `spring.data.redis.timeout: 500ms`가 있어야 함 — 없으면 Redis 장애 시 응답이 최대 1~2분씩 멈춤(Lettuce 기본 60초 타임아웃). Task 3~5에서 작성한 fail-open 코드들이 이 설정 없이는 사실상 무의미했음(자세한 경위는 §3 Task 6 참고).
+
+**사용자 요청 예정 사항**: Task 2 완료 시점에 "학습 커브 점검은 Task 단위가 아니라 Phase 2 전체 완료 후 한 번에" 하기로 합의했음(세션 메모리에도 기록됨) — Phase 2가 지금 막 끝났으니 다음 응답에서 점검 여부를 먼저 물어볼 것.
 
 **참고**: `RiotApiConfig`의 두 `RestClient` 빈이 이제 전역 Bucket4j 인터셉터를 거침 — 검색을 연달아 여러 번 하면(신규 소환사 1명 = 최대 24회 호출) 두 번째 소환사부터 체감 지연이 생길 수 있음(정상 동작, 라이브 테스트 시 참고).
 
@@ -158,11 +160,13 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 > PROJECT_PLAN.md §4 테스트 정책과 동일: 각 Task 구현과 같은 작업 단위에서 작성, 여기서는 빈틈만 확인.
 
-- [ ] Bucket4j — 버킷 소진 시 대기/거부 동작
-- [ ] 429 재시도 — 성공 재시도 케이스, 401 즉시 실패 케이스
-- [ ] 백그라운드 큐 — 이미 있는 매치 skip(Phase 1 로직 재사용 확인), 워커 재시작 후 유실 없음
-- [ ] per-IP 제한 — `INCR`+`EXPIRE` 원자성 갭 케이스
-- [ ] Redis 장애 시 fail-open 동작(인기 검색어 DB 폴백)
+- [x] Bucket4j — 버킷 소진 시 대기/거부 동작 — **빈틈 발견**: Task 1 완료 기준은 라이브로만 확인하고 임시 테스트를 삭제했었음(관례대로), 상시 회귀 테스트가 없었음 → `RiotApiConfigTest.bucket_allowsBurstThenBlocksUntilRefill` 신규 추가(버킷을 직접 타이밍 — 네트워크 없이 20회 즉시 소진, 21~25번째는 리필 속도만큼 대기)
+- [x] 429 재시도 — 성공 재시도 케이스, 401 즉시 실패 케이스 — `RiotApiClientImplTest`에 Task 2에서 이미 작성됨
+- [x] 백그라운드 큐 — 이미 있는 매치 skip은 `MatchServiceTest.planCollection_excludesMatchIdsAlreadyInDbButKeepsTotalCount`(Task 3)로 커버. 워커 재시작 후 유실 없음은 **유닛 테스트 대상이 아님**으로 판단 — 매치는 MySQL에 영구 저장되고 재시작 시 사라지는 건 인메모리 큐(재시작 시 유실이 설계 의도, §3 Task 3)뿐이라 실측(Task 3 라이브 검증: 재시작 후 DB 매치 수 그대로)으로 이미 충분히 검증됨
+- [x] per-IP 제한 — `INCR`+`EXPIRE` 원자성 갭 케이스 — `PerIpRateLimitInterceptorTest.preHandle_setsTtlOnlyOnFirstRequestInWindow`(Task 6)로 이미 커버
+- [x] Redis 장애 시 fail-open 동작 — `SummonerServiceTest`/`MatchCollectionQueueTest`/`PerIpRateLimitInterceptorTest`에 Task 5~6에서 각각 이미 작성됨(쿨다운/큐/인기검색어/per-IP 네 곳 전부)
+
+**완료 기준**: ✅ `./gradlew test` 58개 전부 통과. 5개 항목 중 4개는 이미 충족 확인, Bucket4j 소진 테스트만 신규 추가로 빈틈 채움.
 
 ---
 
@@ -170,10 +174,12 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 
-1. 신규 소환사 검색 시 즉시 일부 응답 + 나머지가 백그라운드로 채워지는 게 화면에서 눈으로 보임(폴링)
-2. [전적 갱신] 연타 시 쿨다운이 걸리고, 갱신 자체는 실제로 새 매치를 큐잉함
-3. 연속 과다 요청 시 Riot 전역 한도(Bucket4j)와 per-IP 제한이 각각 별도로 작동함을 확인
-4. Redis를 강제로 내려도 검색/조회 본기능은 정상 동작(fail-open 확인)
+1. ✅ 신규 소환사 검색 시 즉시 일부 응답 + 나머지가 백그라운드로 채워지는 게 화면에서 눈으로 보임(폴링) — **Task 3에서 "화면 폴링 JS는 범위 밖"으로 미뤄뒀던 걸 Task 8에서 마무리**: `profile.html`이 `collecting=true`면 3초마다 `/api/summoners/{id}/matches`를 폴링해 진행률(`collectedCount/totalCount`)을 표시하고, 완료되면 페이지를 자동 새로고침(매치 리스트를 JS로 직접 패치하는 대신 — 가장 단순한 방법). 라이브 확인: 매치 3건을 지운 뒤 프로필 접속 시 `collecting:true`가 HTML에 실제로 반영됨, 몇 초 후 폴링 엔드포인트가 `collecting:false`로 전환되는 것 확인(브라우저가 없어 JS 실행 자체는 코드 리뷰로만 확인 — `setInterval`/`fetch`/`reload` 표준 패턴이라 리스크 낮다고 판단)
+2. ✅ [전적 갱신] 연타 시 쿨다운이 걸리고, 갱신 자체는 실제로 새 매치를 큐잉함 — Task 4 라이브 확인(200→429, Redis TTL~60초)
+3. ✅ 연속 과다 요청 시 Riot 전역 한도(Bucket4j)와 per-IP 제한이 각각 별도로 작동함을 확인 — Bucket4j는 `RiotApiConfigTest`(Task 8 신규)로, per-IP는 Task 6 라이브(10회 통과/11회부터 429)로 각각 확인
+4. ✅ Redis를 강제로 내려도 검색/조회 본기능은 정상 동작(fail-open 확인) — Task 6에서 타임아웃 버그 수정 후 라이브 확인(1.2초 내 200)
+
+**Phase 2 완료.**
 
 ### 실측 트래킹
 
@@ -186,7 +192,7 @@ PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 | 전적 갱신 버튼 | 2~3h | | 07/29 | |
 | 인기 검색어 Redis 전환 | 2~3h | | 07/29 | Task 3/4의 Redis fail-open 소급 적용 포함(§8 원칙과 실제 구현 불일치 발견+수정) |
 | per-IP 제한 | 2~3h | | 07/29 | Redis 타임아웃 미설정으로 fail-open이 최대 1~2분씩 걸리던 설정 버그 발견+수정(Task 3~5 소급 적용) |
-| 테스트 정리 | 1~2h | | | |
+| 테스트 정리 | 1~2h | | 07/29 | Bucket4j 소진 테스트 빈틈 채움 + Phase 2 DoD #1(화면 폴링) 마무리 |
 
 ---
 

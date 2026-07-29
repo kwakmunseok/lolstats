@@ -5,8 +5,8 @@
 <nav th:replace="~{fragments/layout :: nav}"></nav>
 <main class="container" style="max-width: 720px;">
 
-    <div class="alert alert-info" th:if="${collecting}">
-        매치 데이터를 백그라운드에서 불러오는 중입니다. 잠시 후 새로고침 해주세요.
+    <div class="alert alert-info" id="collectingNotice" th:if="${collecting}">
+        매치 데이터를 백그라운드에서 불러오는 중입니다<span id="collectingProgress"></span>...
     </div>
 
     <div class="card mb-4">
@@ -80,10 +80,35 @@
     /*<![CDATA[*/
     const gameName = /*[[${summoner.gameName}]]*/ '';
     const tagLine = /*[[${summoner.tagLine}]]*/ '';
+    const summonerId = /*[[${summoner.id}]]*/ 0;
+    const collecting = /*[[${collecting}]]*/ false;
+
     let recent = JSON.parse(localStorage.getItem('recentSearches') || '[]');
     recent = recent.filter(r => !(r.gameName === gameName && r.tagLine === tagLine));
     recent.unshift({gameName, tagLine});
     localStorage.setItem('recentSearches', JSON.stringify(recent.slice(0, 10)));
+
+    // Background collection status (Phase 2 Task 3/8 - PHASE2_PLAN.md DoD #1): poll the same
+    // JSON endpoint the API uses, and just reload the page once done rather than patching the
+    // match list in place - simplest thing that satisfies "progress visible on screen".
+    if (collecting) {
+        const interval = setInterval(() => {
+            fetch(`/api/summoners/${summonerId}/matches?size=1`)
+                .then(r => r.json())
+                .then(status => {
+                    if (!status.collecting) {
+                        clearInterval(interval);
+                        window.location.reload();
+                        return;
+                    }
+                    const progress = document.getElementById('collectingProgress');
+                    if (progress && status.totalCount) {
+                        progress.textContent = ` (${status.collectedCount ?? 0}/${status.totalCount})`;
+                    }
+                })
+                .catch(() => clearInterval(interval));
+        }, 3000);
+    }
     /*]]>*/
 </script>
 </body>
