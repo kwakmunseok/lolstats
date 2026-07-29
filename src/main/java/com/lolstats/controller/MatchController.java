@@ -4,10 +4,12 @@ import com.lolstats.domain.Match;
 import com.lolstats.domain.MatchParticipant;
 import com.lolstats.domain.Summoner;
 import com.lolstats.dto.MatchDetailResponse;
+import com.lolstats.dto.MatchListResponse;
 import com.lolstats.dto.MatchSummaryResponse;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
 import com.lolstats.repository.SummonerRepository;
+import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -30,21 +32,24 @@ public class MatchController {
     private final SummonerRepository summonerRepository;
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
+    private final MatchCollectionQueue matchCollectionQueue;
 
     public MatchController(
             SummonerRepository summonerRepository,
             MatchRepository matchRepository,
-            MatchParticipantRepository matchParticipantRepository) {
+            MatchParticipantRepository matchParticipantRepository,
+            MatchCollectionQueue matchCollectionQueue) {
         this.summonerRepository = summonerRepository;
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
+        this.matchCollectionQueue = matchCollectionQueue;
     }
 
-    // Phase 1: reads whatever is already in the DB, no live collection triggered here
-    // (that happens once, from SummonerController on search - see its DoD in PHASE1_PLAN.md
-    // Task 4). No `collecting` status field yet - that's Phase 2's background queue.
+    // Reads whatever is already in the DB; collection itself happens in the background
+    // (MatchCollectionQueue, triggered from SummonerController/PageController on search -
+    // PHASE2_PLAN.md Task 3). collecting/collectedCount/totalCount let FE poll progress.
     @GetMapping("/summoners/{summonerId}/matches")
-    public Page<MatchSummaryResponse> getMatches(
+    public MatchListResponse getMatches(
             @PathVariable Long summonerId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -52,9 +57,20 @@ public class MatchController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "summoner not found: " + summonerId));
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("match.gameCreation").descending());
-        return matchParticipantRepository.findByPuuidAndMatch_QueueTypeIn(
+        Page<MatchSummaryResponse> matches = matchParticipantRepository.findByPuuidAndMatch_QueueTypeIn(
                         summoner.getPuuid(), MatchService.RIFT_QUEUE_TYPES, pageable)
                 .map(MatchSummaryResponse::from);
+
+        boolean collecting = matchCollectionQueue.isCollecting(summoner.getPuuid());
+        Integer totalCount = matchCollectionQueue.totalCount(summoner.getPuuid());
+        // Counted across all queue types (matching what totalCount counts, per Riot's raw id
+        // list), not the Rift-only `matches` page above - a mixed-queue puuid would otherwise
+        // never show 100% since non-Rift matches never appear in the displayed list.
+        Integer collectedCount = collecting && totalCount != null
+                ? Math.min(matchParticipantRepository.findByPuuid(summoner.getPuuid()).size(), totalCount)
+                : null;
+
+        return MatchListResponse.of(matches, collecting, collectedCount, totalCount);
     }
 
     @GetMapping("/matches/{riotMatchId}")

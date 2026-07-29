@@ -7,6 +7,8 @@ import com.lolstats.domain.MatchParticipant;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -17,9 +19,6 @@ import java.util.List;
 public class MatchService {
 
     private static final int MATCH_ID_FETCH_COUNT = 20;
-    // Plan allows 3~5 detail fetches per search (Phase 1 has no background queue yet);
-    // 5 is the upper bound so a newly-searched summoner's history fills in fastest.
-    private static final int DETAIL_FETCH_LIMIT = 5;
 
     // Summoner's Rift only (PROJECT_PLAN.md §4 MVP scope: 협곡 데이터만, ARAM/Arena 등 제외).
     // Normal Draft/Blind, Ranked Solo/Flex - Riot's numeric queueId, matching how queue_type
@@ -30,51 +29,72 @@ public class MatchService {
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     public MatchService(
             RiotApiClient riotApiClient,
             MatchRepository matchRepository,
             MatchParticipantRepository matchParticipantRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager) {
         this.riotApiClient = riotApiClient;
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
         this.objectMapper = objectMapper;
+        // TransactionTemplate instead of @Transactional: saveMatch() is called from within
+        // this same bean (collectMatches() loop), and Spring's proxy-based @Transactional
+        // does nothing on that kind of self-invocation - this way a failure between the match
+        // insert and its participants insert actually rolls both back instead of leaving an
+        // orphaned Match row (found live during Task 3 verification - PHASE2_PLAN.md).
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    public void collectRecentMatches(String puuid) {
+    // totalCount is every id Riot returned (any queue); missingMatchIds is whatever isn't
+    // already cached (PROJECT_PLAN.md principle ① - never re-request an already-seen match).
+    public record CollectionPlan(int totalCount, List<String> missingMatchIds) {
+    }
+
+    // Cheap (1 Riot call) - called synchronously from the search request so the response can
+    // report totalCount immediately and decide whether there's anything to hand off to the
+    // background queue (Phase 2 Task 3). The actual fetching happens in collectMatches().
+    public CollectionPlan planCollection(String puuid) {
         List<String> matchIds = riotApiClient.getMatchIdsByPuuid(puuid, MATCH_ID_FETCH_COUNT);
-
-        // Matches never change once played (PROJECT_PLAN.md principle ①) - anything
-        // already in MATCHES is skipped rather than re-fetched.
-        List<String> newMatchIds = matchIds.stream()
+        List<String> missing = matchIds.stream()
                 .filter(id -> !matchRepository.existsByRiotMatchId(id))
-                .limit(DETAIL_FETCH_LIMIT)
                 .toList();
+        return new CollectionPlan(matchIds.size(), missing);
+    }
 
-        for (String matchId : newMatchIds) {
+    // Phase 1 capped this at 5 detail fetches per search; Phase 2's background worker isn't
+    // blocking a request thread anymore, so it works through everything missing.
+    public void collectMatches(List<String> matchIds, Runnable afterEachSave) {
+        for (String matchId : matchIds) {
             try {
                 saveMatch(riotApiClient.getMatchById(matchId));
+                afterEachSave.run();
             } catch (HttpClientErrorException.TooManyRequests e) {
-                // Phase 1 has no retry/backoff yet (that's Phase 2's Bucket4j) - keep
-                // whatever was already saved and stop quietly instead of failing the search.
+                // RiotApiClientImpl already retries 429s a bounded number of times (Phase 2
+                // Task 2) - this only triggers once those retries are exhausted, so stop
+                // quietly and keep whatever was already saved rather than fail the whole run.
                 break;
             }
         }
     }
 
     private void saveMatch(RiotMatchResponse response) {
-        Match match = matchRepository.save(Match.builder()
-                .riotMatchId(response.metadata().matchId())
-                .gameCreation(Instant.ofEpochMilli(response.info().gameCreation()))
-                .gameDuration(response.info().gameDuration())
-                .queueType(String.valueOf(response.info().queueId()))
-                .build());
+        transactionTemplate.executeWithoutResult(status -> {
+            Match match = matchRepository.save(Match.builder()
+                    .riotMatchId(response.metadata().matchId())
+                    .gameCreation(Instant.ofEpochMilli(response.info().gameCreation()))
+                    .gameDuration(response.info().gameDuration())
+                    .queueType(String.valueOf(response.info().queueId()))
+                    .build());
 
-        List<MatchParticipant> participants = response.info().participants().stream()
-                .map(p -> toParticipant(match, p))
-                .toList();
-        matchParticipantRepository.saveAll(participants);
+            List<MatchParticipant> participants = response.info().participants().stream()
+                    .map(p -> toParticipant(match, p))
+                    .toList();
+            matchParticipantRepository.saveAll(participants);
+        });
     }
 
     private MatchParticipant toParticipant(Match match, RiotMatchResponse.RiotMatchParticipant p) {

@@ -2,6 +2,7 @@ package com.lolstats.controller;
 
 import com.lolstats.domain.Summoner;
 import com.lolstats.dto.SummonerResponse;
+import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
 import com.lolstats.service.SummonerService;
 import jakarta.validation.constraints.Size;
@@ -21,10 +22,13 @@ public class SummonerController {
 
     private final SummonerService summonerService;
     private final MatchService matchService;
+    private final MatchCollectionQueue matchCollectionQueue;
 
-    public SummonerController(SummonerService summonerService, MatchService matchService) {
+    public SummonerController(
+            SummonerService summonerService, MatchService matchService, MatchCollectionQueue matchCollectionQueue) {
         this.summonerService = summonerService;
         this.matchService = matchService;
+        this.matchCollectionQueue = matchCollectionQueue;
     }
 
     // "riot-id" prefix keeps this 2-segment route from colliding with /{summonerId}/matches
@@ -35,8 +39,12 @@ public class SummonerController {
             @PathVariable @Size(min = 3, max = 16, message = "게임 이름은 3~16자여야 합니다") String gameName,
             @PathVariable @Size(min = 3, max = 5, message = "태그라인은 3~5자여야 합니다") String tagLine) {
         Summoner summoner = summonerService.findOrFetch(gameName, tagLine);
-        // Sync, best-effort collection (Phase 1: no background queue yet - that's Phase 2).
-        matchService.collectRecentMatches(summoner.getPuuid());
+        // Response returns immediately with whatever's cached; missing matches are handed to
+        // the background queue instead of fetched synchronously (Phase 2 Task 3).
+        MatchService.CollectionPlan plan = matchService.planCollection(summoner.getPuuid());
+        if (!plan.missingMatchIds().isEmpty()) {
+            matchCollectionQueue.enqueue(summoner.getPuuid(), plan.totalCount());
+        }
         return SummonerResponse.from(summoner);
     }
 

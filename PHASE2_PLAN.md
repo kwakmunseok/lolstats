@@ -10,16 +10,22 @@
 - [ ] Bucket4j 의존성 확정 — `bucket4j-core` 최신 안정판(단일 인스턴스라 `bucket4j-redis` 통합 불필요 — PROJECT_PLAN.md §4 Phase 2 명시). Spring Boot 4.1 신규 버전이라 착수 시점에 Maven Central에서 최신 버전·Java 17 호환 재확인 필요(PHASE1_PLAN.md §5의 Spring Boot 버전 변경 건과 동일한 이유로 미리 못 박지 않음)
 - [ ] Redis 사용 방식 확정 — **Spring Cache 추상화(`@Cacheable` 등) 사용 안 함**. `StringRedisTemplate`으로 `SETNX`/`INCR`/`EXPIRE`/`ZINCRBY`/`ZREVRANGE` 원자 연산을 직접 호출(PROJECT_PLAN.md §2-6 학습 목적 — Redis 관용 패턴을 손으로 익히는 게 목적이라 추상화가 가리면 안 됨)
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 2까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 3까지 완료)
 
-**Task 0(Redis)~2(429 재시도) 완료 / Task 3(백그라운드 매치 수집 큐)부터 재개**
+**Task 0(Redis)~3(백그라운드 수집 큐) 완료 / Task 4([전적 갱신] 버튼)부터 재개**
 
 다음 세션 시작 시 순서:
 1. `docker compose up -d` — MySQL + Redis 둘 다 기동(볼륨 유지, 데이터 그대로)
 2. `.env`의 `RIOT_API_KEY` 유효성 확인(24h 만료)
-3. `RIOT_API_KEY=<키> ./gradlew test`로 33개 통과 확인 후 Task 3 착수
+3. `RIOT_API_KEY=<키> ./gradlew test`로 40개 통과 확인 후 Task 4 착수
 
 **참고**: `RiotApiConfig`의 두 `RestClient` 빈이 이제 전역 Bucket4j 인터셉터를 거침 — 검색을 연달아 여러 번 하면(신규 소환사 1명 = 최대 24회 호출) 두 번째 소환사부터 체감 지연이 생길 수 있음(정상 동작, 라이브 테스트 시 참고).
+
+**Task 3 라이브 검증 중 실제 버그 2건 발견 후 수정**(재발견 방지용 기록 — 자세한 내용은 §3 Task 3 항목):
+1. `MatchService.saveMatch()`가 매치/참가자를 한 트랜잭션으로 안 묶어서, 저장 도중 예외가 나면 참가자 없는 "고아 매치" 행이 영구히 남는 결함(Phase 1부터 있던 잠재 버그, Task 3 라이브 테스트에서 실제로 재현) → `TransactionTemplate`으로 수정
+2. `MatchCollectionQueue.process()`가 예외를 좁게만 잡고 있어서, 예상 못한 예외가 나면 백그라운드 워커 스레드가 조용히 죽고 재시작 전까진 영구히 수집이 멈추는 구조였음 → `catch (Exception e)` 안전망 추가
+
+두 버그 다 지금 이 세션에서 고쳤고 재검증 완료(고아 매치 재현 안 됨). 다음 세션에서 또 이상한 "매치는 있는데 참가자가 0명" 상황을 보면 이미 고쳐진 버그의 잔재(과거 테스트 중 생성된 행)일 가능성 먼저 의심할 것.
 
 **학습 커브 점검 시점**: 사용자 요청(2026-07-29)으로 Task 단위가 아니라 **Phase 2 전체 완료 후 한 번에** 점검하기로 함 — Phase 1은 Task 8까지 진행 후 세션 마무리 시점에 별다른 점검 없이 넘어갔었는데, Phase 2가 "전체에서 가장 무거운 Phase"(PROJECT_PLAN.md §10)라 실측 대비 학습 소화 속도를 한 번에 보기로 한 것. Phase 2 마지막 Task(8. 테스트 정리) 완료 시점에 먼저 점검 여부를 물어볼 것.
 
@@ -90,13 +96,18 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 ### 3. 백그라운드 매치 수집 큐 — 6~8h
 
-- [ ] 단일 워커 스레드가 인메모리 큐(`BlockingQueue<String>`, puuid)를 순차 소비하는 구조 (`@Component` + `@PostConstruct`로 워커 시작, `@PreDestroy`로 정지 — 매치별 `@Async` fan-out 금지, PROJECT_PLAN.md §4 명시 이유: Bucket4j 대기에서 스레드가 전부 잠드는 것 방지)
-- [ ] 검색 시: DB에 있는 만큼 즉시 응답 + 부족분(나머지 매치 ID)은 큐에 적재, `Redis SETNX collecting:{puuid} true` + TTL 5분(동시 검색 시 중복 큐잉 방지 겸용)
-- [ ] 워커가 매치를 하나 저장할 때마다 `collecting:{puuid}` **TTL 재연장**(하트피트) — 전역 한도 공유로 5분 초과가 정상 시나리오이므로 고정 TTL이면 진행 중에도 조기 만료됨(PROJECT_PLAN.md §4 상세 설명 참고)
-- [ ] `GET /api/summoners/{summonerId}/matches` 응답에 `collecting`(bool)/`collectedCount`/`totalCount` 필드 추가 — FE 폴링용 (§7). `totalCount`는 매치 ID 목록 기준, `collectedCount`는 DB `COUNT` 파생
-- [ ] Dev Key 만료(401/403) 감지 시 큐 처리 일시정지 + 로그(Task 2와 연결)
+- [x] `MatchService`를 `planCollection(puuid)`(ids 목록 조회 1회, 이미 있는 건 제외한 `missingMatchIds` + `totalCount` 반환 — 검색 요청 안에서 동기로 호출)와 `collectMatches(matchIds, afterEachSave)`(실제 상세 조회+저장, Phase 1의 5건 상한 제거 — 요청 스레드를 막고 있지 않으니 백그라운드 워커가 끝까지 처리)로 분리
+- [x] `MatchCollectionQueue`(신규 `@Component`) — 단일 워커 스레드가 인메모리 큐(`BlockingQueue<String>`, puuid)를 순차 소비 (`@PostConstruct`로 시작, `@PreDestroy`로 정지 — 매치별 `@Async` fan-out 금지)
+- [x] 검색 시(`SummonerController`/`PageController` 둘 다): `planCollection` 호출 → 부족분 있으면 `matchCollectionQueue.enqueue(puuid, totalCount)`. `enqueue`는 `Redis SETNX collecting:{puuid} <totalCount>` + TTL 5분(**`SETNX`의 값 자체를 totalCount로 사용** — 문서 초안엔 `true`였지만 별도 키 없이 한 키로 존재여부+totalCount를 같이 표현하는 쪽이 더 단순해 이렇게 확정) — 락 획득 성공 시에만 큐에 적재(동시 검색 중복 방지)
+- [x] 워커가 매치를 하나 저장할 때마다(`afterEachSave` 콜백) `collecting:{puuid}` **TTL 재연장**
+- [x] `GET /api/summoners/{summonerId}/matches` → `MatchListResponse`(신규 DTO)로 `collecting`/`collectedCount`/`totalCount` 추가. **`collectedCount`는 큐 종류 무관하게 이 puuid의 전체 저장된 매치 수**(`findByPuuid(puuid).size()`)로 계산 — 화면에 보이는 `matches`는 협곡만이지만 `totalCount`(Riot ids 목록 기준)는 큐 종류를 안 가리므로, 진행률 분자·분모를 같은 기준으로 맞추기 위함(아레나가 섞인 puuid는 `matches` 리스트만 봐서는 100%에 못 미치는 것처럼 보일 수 있음 — 알려진 사소한 표시상 오차, 정정하지 않음)
+- [x] Dev Key 만료(401/403) 감지 시 `paused` 플래그로 이후 큐 항목을 Riot 호출 없이 즉시 드롭 + 로그(Task 2와 연결)
 
-**완료 기준**: 신규 소환사 검색 후 매치 목록을 반복 조회하며 `collecting: true → false` 전이 확인, 워커를 재시작해도 이미 저장된 매치는 그대로 남아있음(원칙 ①) 확인, Dev Key를 일부러 무효화해 큐가 계속 실패 재시도하지 않고 멈추는지 확인.
+**라이브 검증 중 발견해 같이 고친 버그 2건** (Task 3 자체 스코프로 판단 — "신뢰 가능한 백그라운드 워커"가 이 Task의 본질이라 로버스트니스 문제를 미루지 않음):
+1. **참가자 없이 저장되는 매치(orphaned row)**: 매치 20건 중 일부를 지웠다 재수집시키는 라이브 테스트 중, `matches` 행은 생성됐는데 `match_participants`가 0건인 행을 실제로 발견. 원인은 `saveMatch()`가 `matchRepository.save()`와 `matchParticipantRepository.saveAll()`을 하나의 트랜잭션으로 안 묶어서(Spring Data JPA 리포지토리 메서드는 기본적으로 각자 자기 트랜잭션) 둘 사이에 예외가 나면 매치만 영구히 남는 구조였음(Phase 1부터 있던 잠재 결함, Task 3에서 처음 실측으로 드러남). `saveMatch()`가 이 서비스 내부에서 호출돼(self-invocation) `@Transactional` 프록시가 안 먹으므로, `PlatformTransactionManager` 기반 `TransactionTemplate`으로 두 저장을 한 트랜잭션에 묶어 수정
+2. **워커 스레드가 죽을 수 있는 구조**: `MatchCollectionQueue.process()`가 `Unauthorized`/`Forbidden`만 잡고 있어서, 그 외 예외(위 1번 같은 DB 문제 등)가 나면 `runLoop()`까지 뚫고 올라가 워커 스레드가 조용히 죽고 재시작 전까진 백그라운드 수집이 영구히 멈추는 구조였음. `process()`에 `catch (Exception e)` 안전망 추가(로그만 남기고 다음 항목 계속 처리, `paused`는 세팅 안 함 — API 키 문제가 아니므로)
+
+**완료 기준**: ✅ 실제 서버+MySQL+Redis+Riot API로 확인 — 매치 몇 건을 지운 뒤 재검색 → `/api/summoners/{id}/matches` 반복 조회로 `collecting:true`(`collectedCount` 11→17 진행) → `collecting:false`(원래 개수 복구) 전이 실측. 앱 재시작 후(재검색 없이) DB 매치 수 그대로 유지 확인(원칙 ①). Dev Key를 일부러 무효화한 라이브 시도에서는 `planCollection`이 **검색 요청 자체 안에서 동기 호출**되기 때문에(큐에 넣기도 전에) 검색 자체가 500으로 실패하는 것까지만 확인됨 — 큐/워커 자체의 일시정지 로직은 `MatchCollectionQueueTest`(`process_pausesOnUnauthorized_andDropsSubsequentJobsWithoutCallingRiot`)로 결정론적으로 검증(라이브로 정확히 "큐에 이미 들어간 작업이 키 만료를 만나는" 타이밍을 재현하기 어려워 유닛 테스트가 더 신뢰도 높은 검증 수단이라 판단). 전체 테스트 40개 통과.
 
 ### 4. [전적 갱신] 버튼 — 2~3h
 
@@ -155,7 +166,7 @@ PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 | Redis 세팅 | 0.5~1h | | 07/29 | |
 | Bucket4j | 4~5h | | 07/29 | |
 | 429 재시도 | 3~4h | | 07/29 | |
-| 백그라운드 큐 | 6~8h | | | 실동작 검증 비중이 커서 단축 폭이 작을 것으로 예상 |
+| 백그라운드 큐 | 6~8h | | 07/29 | 실동작 검증 중 실제 버그 2건 발견+수정(트랜잭션 미흡, 워커 예외 안전망) — 추정대로 검증 비중이 컸음 |
 | 전적 갱신 버튼 | 2~3h | | | |
 | 인기 검색어 Redis 전환 | 2~3h | | | |
 | per-IP 제한 | 2~3h | | | |

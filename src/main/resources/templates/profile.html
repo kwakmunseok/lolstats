@@ -5,6 +5,10 @@
 <nav th:replace="~{fragments/layout :: nav}"></nav>
 <main class="container" style="max-width: 720px;">
 
+    <div class="alert alert-info" th:if="${collecting}">
+        매치 데이터를 백그라운드에서 불러오는 중입니다. 잠시 후 새로고침 해주세요.
+    </div>
+
     <div class="card mb-4">
         <div class="card-body d-flex align-items-center gap-3">
             <img th:if="${profileIconUrl}" th:src="${profileIconUrl}" width="72" height="72" class="rounded-circle"

@@ -14,16 +14,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -39,13 +40,21 @@ class MatchServiceTest {
     private MatchRepository matchRepository;
     @Mock
     private MatchParticipantRepository matchParticipantRepository;
+    @Mock
+    private PlatformTransactionManager transactionManager;
+    @Mock
+    private TransactionStatus transactionStatus;
 
     private MatchService service;
 
     @BeforeEach
     void setUp() {
-        service = new MatchService(riotApiClient, matchRepository, matchParticipantRepository, JsonMapper.builder().build());
+        service = new MatchService(
+                riotApiClient, matchRepository, matchParticipantRepository, JsonMapper.builder().build(), transactionManager);
         lenient().when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // TransactionTemplate delegates to the manager for begin/commit - a mocked manager
+        // just needs to hand back a status object so the callback still runs synchronously.
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
     }
 
     private static RiotMatchResponse sampleMatch(String matchId) {
@@ -60,47 +69,52 @@ class MatchServiceTest {
     }
 
     @Test
-    void skipsMatchIdsAlreadyInDb() {
+    void planCollection_excludesMatchIdsAlreadyInDbButKeepsTotalCount() {
         when(riotApiClient.getMatchIdsByPuuid("puuid-1", 20))
                 .thenReturn(List.of("KR_1", "KR_2", "KR_3"));
         when(matchRepository.existsByRiotMatchId("KR_1")).thenReturn(true);
         when(matchRepository.existsByRiotMatchId("KR_2")).thenReturn(false);
         when(matchRepository.existsByRiotMatchId("KR_3")).thenReturn(false);
-        when(riotApiClient.getMatchById("KR_2")).thenReturn(sampleMatch("KR_2"));
-        when(riotApiClient.getMatchById("KR_3")).thenReturn(sampleMatch("KR_3"));
 
-        service.collectRecentMatches("puuid-1");
+        MatchService.CollectionPlan plan = service.planCollection("puuid-1");
 
-        verify(riotApiClient, never()).getMatchById("KR_1");
-        verify(riotApiClient).getMatchById("KR_2");
-        verify(riotApiClient).getMatchById("KR_3");
+        assertEquals(3, plan.totalCount());
+        assertEquals(List.of("KR_2", "KR_3"), plan.missingMatchIds());
     }
 
     @Test
-    void limitsDetailFetchesToFivePerSearch() {
+    void collectMatches_fetchesEveryProvidedId_noCap() {
+        // Phase 1 capped this at 5; Phase 2's background worker isn't blocking a request
+        // thread anymore, so all provided ids get processed.
         List<String> ids = List.of("KR_1", "KR_2", "KR_3", "KR_4", "KR_5", "KR_6", "KR_7");
-        when(riotApiClient.getMatchIdsByPuuid("puuid-1", 20)).thenReturn(ids);
-        // filter().limit(5) short-circuits lazily, so existsByRiotMatchId is never even
-        // called for KR_6/KR_7 - both stubs below are lenient for that reason.
         for (String id : ids) {
-            lenient().when(matchRepository.existsByRiotMatchId(id)).thenReturn(false);
-            lenient().when(riotApiClient.getMatchById(id)).thenReturn(sampleMatch(id));
+            when(riotApiClient.getMatchById(id)).thenReturn(sampleMatch(id));
         }
 
-        service.collectRecentMatches("puuid-1");
+        service.collectMatches(ids, () -> {
+        });
 
-        verify(riotApiClient, times(5)).getMatchById(any());
-        verify(riotApiClient, never()).getMatchById("KR_6");
-        verify(riotApiClient, never()).getMatchById("KR_7");
+        verify(riotApiClient, times(7)).getMatchById(any());
     }
 
     @Test
-    void savesMatchAndParticipantsWithMappedFields() {
-        when(riotApiClient.getMatchIdsByPuuid("puuid-1", 20)).thenReturn(List.of("KR_1"));
-        when(matchRepository.existsByRiotMatchId("KR_1")).thenReturn(false);
+    void collectMatches_invokesCallbackOnceForEachSave() {
+        List<String> ids = List.of("KR_1", "KR_2");
+        when(riotApiClient.getMatchById("KR_1")).thenReturn(sampleMatch("KR_1"));
+        when(riotApiClient.getMatchById("KR_2")).thenReturn(sampleMatch("KR_2"));
+        AtomicInteger callbackCount = new AtomicInteger();
+
+        service.collectMatches(ids, callbackCount::incrementAndGet);
+
+        assertEquals(2, callbackCount.get());
+    }
+
+    @Test
+    void collectMatches_savesMatchAndParticipantsWithMappedFields() {
         when(riotApiClient.getMatchById("KR_1")).thenReturn(sampleMatch("KR_1"));
 
-        service.collectRecentMatches("puuid-1");
+        service.collectMatches(List.of("KR_1"), () -> {
+        });
 
         ArgumentCaptor<Match> matchCaptor = ArgumentCaptor.forClass(Match.class);
         verify(matchRepository).save(matchCaptor.capture());
@@ -119,16 +133,14 @@ class MatchServiceTest {
     }
 
     @Test
-    void stopsQuietlyOn429_keepsAlreadySavedMatches() {
-        when(riotApiClient.getMatchIdsByPuuid("puuid-1", 20))
-                .thenReturn(List.of("KR_1", "KR_2", "KR_3"));
-        when(matchRepository.existsByRiotMatchId(any())).thenReturn(false);
+    void collectMatches_stopsQuietlyOn429_keepsAlreadySavedMatches() {
         when(riotApiClient.getMatchById("KR_1")).thenReturn(sampleMatch("KR_1"));
         when(riotApiClient.getMatchById("KR_2"))
                 .thenThrow(HttpClientErrorException.create(
                         HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY, new byte[0], null));
 
-        service.collectRecentMatches("puuid-1");
+        service.collectMatches(List.of("KR_1", "KR_2", "KR_3"), () -> {
+        });
 
         verify(riotApiClient).getMatchById("KR_1");
         verify(riotApiClient).getMatchById("KR_2");

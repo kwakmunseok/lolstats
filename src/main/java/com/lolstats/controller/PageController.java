@@ -6,6 +6,7 @@ import com.lolstats.domain.Summoner;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
 import com.lolstats.service.DataDragonService;
+import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
 import com.lolstats.service.SummonerService;
 import com.lolstats.service.TierEmblems;
@@ -34,6 +35,7 @@ public class PageController {
 
     private final SummonerService summonerService;
     private final MatchService matchService;
+    private final MatchCollectionQueue matchCollectionQueue;
     private final DataDragonService dataDragonService;
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
@@ -42,12 +44,14 @@ public class PageController {
     public PageController(
             SummonerService summonerService,
             MatchService matchService,
+            MatchCollectionQueue matchCollectionQueue,
             DataDragonService dataDragonService,
             MatchRepository matchRepository,
             MatchParticipantRepository matchParticipantRepository,
             ObjectMapper objectMapper) {
         this.summonerService = summonerService;
         this.matchService = matchService;
+        this.matchCollectionQueue = matchCollectionQueue;
         this.dataDragonService = dataDragonService;
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
@@ -62,8 +66,12 @@ public class PageController {
     @GetMapping("/summoners/{gameName}/{tagLine}")
     public String profile(@PathVariable String gameName, @PathVariable String tagLine, Model model) {
         Summoner summoner = summonerService.findOrFetch(gameName, tagLine);
-        // Sync, best-effort collection - same trigger point as SummonerController's API route.
-        matchService.collectRecentMatches(summoner.getPuuid());
+        // Same trigger point as SummonerController's API route - response uses whatever's
+        // already cached, missing matches go to the background queue (Phase 2 Task 3).
+        MatchService.CollectionPlan plan = matchService.planCollection(summoner.getPuuid());
+        if (!plan.missingMatchIds().isEmpty()) {
+            matchCollectionQueue.enqueue(summoner.getPuuid(), plan.totalCount());
+        }
 
         List<MatchParticipant> own = matchParticipantRepository.findByPuuidAndMatch_QueueTypeIn(
                 summoner.getPuuid(), MatchService.RIFT_QUEUE_TYPES,
@@ -75,6 +83,9 @@ public class PageController {
                 ? null : dataDragonService.getProfileIconUrl(summoner.getProfileIconId()));
         model.addAttribute("winRate", winRate(summoner.getWins(), summoner.getLosses()));
         model.addAttribute("matches", own.stream().map(this::toMatchCard).toList());
+        // Static notice only (no JS polling yet) - PHASE2_PLAN.md Task 3 스코프는 API 필드까지,
+        // 화면 폴링은 별도 태스크로 미룸.
+        model.addAttribute("collecting", matchCollectionQueue.isCollecting(summoner.getPuuid()));
         return "profile";
     }
 
