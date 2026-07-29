@@ -10,15 +10,16 @@
 - [ ] Bucket4j 의존성 확정 — `bucket4j-core` 최신 안정판(단일 인스턴스라 `bucket4j-redis` 통합 불필요 — PROJECT_PLAN.md §4 Phase 2 명시). Spring Boot 4.1 신규 버전이라 착수 시점에 Maven Central에서 최신 버전·Java 17 호환 재확인 필요(PHASE1_PLAN.md §5의 Spring Boot 버전 변경 건과 동일한 이유로 미리 못 박지 않음)
 - [ ] Redis 사용 방식 확정 — **Spring Cache 추상화(`@Cacheable` 등) 사용 안 함**. `StringRedisTemplate`으로 `SETNX`/`INCR`/`EXPIRE`/`ZINCRBY`/`ZREVRANGE` 원자 연산을 직접 호출(PROJECT_PLAN.md §2-6 학습 목적 — Redis 관용 패턴을 손으로 익히는 게 목적이라 추상화가 가리면 안 됨)
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 5까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 6까지 완료)
 
-**Task 0(Redis)~5(인기 검색어 Redis 전환) 완료 / Task 6(per-IP 요청 제한)부터 재개**
+**Task 0(Redis)~6(per-IP 요청 제한) 완료 / Task 7(캐시 무효화 전략 점검)부터 재개**
 
 다음 세션 시작 시 순서:
 1. `docker compose up -d` — MySQL + Redis 둘 다 기동(볼륨 유지, 데이터 그대로)
-2. `.env`의 `RIOT_API_KEY`를 **반드시 재발급**할 것 — Task 5 마무리 시점에 24h 만료돼 있었고, 이 세션의 라이브 테스트 상당수를 Redis만 직접 조작하는 방식으로 우회함(아래 참고)
-3. `RIOT_API_KEY=<키> ./gradlew test`로 53개 통과 확인 후 Task 6 착수
-4. **재발급 후 여유 있으면**: `[전적 갱신]` 버튼을 유효한 키로 다시 라이브 호출해서 §3 Task 5 "라이브 검증 중 발견한 별도 이슈"(Redis 다운 + 만료된 키 조합에서 응답이 2분 넘게 멈췄던 현상)가 키를 정상으로 바꾸면 재현되는지 확인 — Bucket4j 버킷 소진 때문이었는지, 다른 원인이 있는지 아직 미확정
+2. `.env`의 `RIOT_API_KEY` 유효성 확인(24h 만료 — 재발급 직후엔 몇 분간 401 "Unknown apikey"가 뜰 수 있음, 전파 지연이니 재시도만 하면 됨, API 문제 아님)
+3. `RIOT_API_KEY=<키> ./gradlew test`로 57개 통과 확인 후 Task 7 착수
+
+**중요 설정(재발견 방지)**: `application-dev.yml`/`application-prod.yml`에 `spring.data.redis.timeout: 500ms`가 있어야 함 — 없으면 Redis 장애 시 응답이 최대 1~2분씩 멈춤(Lettuce 기본 60초 타임아웃). Task 3~5에서 작성한 fail-open 코드들이 이 설정 없이는 사실상 무의미했음(자세한 경위는 §3 Task 6 참고).
 
 **참고**: `RiotApiConfig`의 두 `RestClient` 빈이 이제 전역 Bucket4j 인터셉터를 거침 — 검색을 연달아 여러 번 하면(신규 소환사 1명 = 최대 24회 호출) 두 번째 소환사부터 체감 지연이 생길 수 있음(정상 동작, 라이브 테스트 시 참고).
 
@@ -127,15 +128,21 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 **완료 기준**: ✅ 실제 서버로 확인 — `search_rank` ZSET을 직접 시딩 후 `popular` API가 정상 응답, **Redis 컨테이너를 완전히 내린 상태에서도** `popular`(DB 폴백, 200)와 `/api/summoners/{id}/matches`(`collecting:false`/`totalCount:null`로 즉시 폴백, 200) 둘 다 빠르게 정상 응답하는 것 확인. 나머지 fail-open 케이스(`MatchCollectionQueue`/쿨다운)는 유닛 테스트로 결정론적 검증(§ 아래 "라이브 검증 중 발견한 별도 이슈" 참고 — 갱신 버튼 라이브 검증은 다른 이유로 막힘). 전체 테스트 53개 통과.
 
-**라이브 검증 중 발견한 별도 이슈(Task 5와 무관, 기록만)**: Redis를 내린 상태에서 `[전적 갱신]`을 호출했더니 응답이 2분 넘게 멈췄고, 뒤이어 다른 API(`/popular`)까지 한동안 응답이 느려짐. 원인은 Redis가 아니라 **당시 Riot Dev Key가 만료돼 있었고 + 오늘 세션 내내 라이브 테스트를 많이 돌려 Bucket4j 버킷이 상당히 소진된 상태**였을 가능성이 높음(정확한 원인은 유효한 키로 재검증 필요). `open-in-view=true` 상태에서 요청 스레드가 오래 잡혀있으면 HikariCP 커넥션 풀까지 압박할 수 있다는 점도 함께 기록 — Phase 5 운영 최소한 점검 시 재확인 대상.
+**정정(Task 6에서 진짜 원인 확인)**: 아래 "2분 넘게 멈췄다"는 현상은 만료된 키나 Bucket4j 소진이 **아니라**, `spring.data.redis.timeout` 미설정으로 Lettuce 기본 커맨드 타임아웃(60초)이 그대로 적용되고 있었기 때문이었음 — 유효한 키로도 그대로 재현됐고, Task 6에서 `timeout: 500ms` 설정 후 1.2초로 정상화 확인. 상세 내용은 §3 Task 6 "라이브 검증 중 발견해 소급 수정한 설정 버그" 참고. 아래 원문은 당시 추측이 틀렸던 기록으로 남겨둠.
+
+**라이브 검증 중 발견한 별도 이슈(당시 추측 — 위 정정 참고)**: Redis를 내린 상태에서 `[전적 갱신]`을 호출했더니 응답이 2분 넘게 멈췄고, 뒤이어 다른 API(`/popular`)까지 한동안 응답이 느려짐. ~~원인은 Redis가 아니라 당시 Riot Dev Key가 만료돼 있었고 + 오늘 세션 내내 라이브 테스트를 많이 돌려 Bucket4j 버킷이 상당히 소진된 상태였을 가능성이 높음~~(→ 틀림, 실제 원인은 위 정정 참고). `open-in-view=true` 상태에서 요청 스레드가 오래 잡혀있으면 HikariCP 커넥션 풀까지 압박할 수 있다는 점은 여전히 유효한 관찰 — Phase 5 운영 최소한 점검 시 재확인 대상.
 
 ### 6. per-IP 요청 제한 — 2~3h
 
-- [ ] 검색/갱신 트리거 엔드포인트에 필터 또는 인터셉터로 적용
-- [ ] **Redis `INCR` + `INCR` 결과가 1일 때만 `EXPIRE`** 고정 윈도우 직접 구현 — `INCR`과 `EXPIRE` 사이 장애 시 TTL 없는 키가 영구 잔존해 해당 IP가 영구 차단되는 원자성 갭이 대표적 함정(PROJECT_PLAN.md §4 명시, README 트러블슈팅 기록 소재)
-- [ ] 로컬 개발 환경은 `request.getRemoteAddr()` 그대로 사용 — 프록시 헤더(`X-Forwarded-For`) 처리는 배포 트랙(§9.2)에서, 이 문서 범위 밖
+- [x] `PerIpRateLimitInterceptor`(`HandlerInterceptor`) + `WebConfig`(`WebMvcConfigurer`)로 **검색(`/api/summoners/riot-id/**`)과 갱신(`/api/summoners/*/refresh`) 두 엔드포인트에만** 적용 — Riot 호출을 실제로 발생시키는 경로만(§8 리스크 원문 그대로). `autocomplete`/`popular`/매치 목록은 DB·Redis만 쓰므로 대상 아님
+- [x] **Redis `INCR` + `INCR` 결과가 1일 때만 `EXPIRE`** 고정 윈도우 직접 구현 — `INCR`과 `EXPIRE` 사이 장애 시 TTL 없는 키가 영구 잔존해 해당 IP가 영구 차단되는 원자성 갭이 대표적 함정(PROJECT_PLAN.md §4 명시)
+- [x] 한도는 **IP당 분당 10회**로 확정(계획서에 구체 수치 없어 이번에 결정) — 검색 1건이 동기적으로 최대 4회(계정+소환사+랭크+매치ID목록) Riot 호출을 유발하므로 10회/분이면 한 IP가 순간적으로 최대 40회/분까지 전역 버킷(100회/2분≈50회/분 평균)을 잠식 가능 — 압도적 남용은 막으면서 정상 사용은 방해 안 하는 선
+- [x] 초과 시 `ResponseStatusException(429)`를 `preHandle`에서 던짐 — 인터셉터에서 던진 예외도 DispatcherServlet의 예외 처리 체인을 그대로 타서 기존 `ProblemDetail` 포맷과 동일하게 응답됨(직접 `response.setStatus()`로 바디 없이 처리하지 않음)
+- [x] 로컬 개발 환경은 `request.getRemoteAddr()` 그대로 사용 — 프록시 헤더(`X-Forwarded-For`) 처리는 배포 트랙(§9.2)에서, 이 문서 범위 밖
 
-**완료 기준**: 짧은 시간에 한도를 초과하는 연속 요청 시 제한 응답 확인, 테스트로 "INCR 결과가 1일 때만 EXPIRE가 호출된다"를 직접 검증(원자성 갭 회귀 방지).
+**라이브 검증 중 발견해 소급 수정한 설정 버그**(Task 3~5의 Redis fail-open을 사실상 무력화하고 있었음): Redis를 내린 상태로 라이브 테스트했을 때 요청이 **2분 넘게 멈추는 현상**이 재현됐는데, Task 5 때는 만료된 키 탓으로 오인했었음 — 이번엔 **유효한 키로도 똑같이 재현**돼서 진짜 원인을 찾음. `spring.data.redis.timeout`을 설정 안 해서 Lettuce 기본 커맨드 타임아웃(**60초**)이 그대로 적용되고 있었고, 한 요청 안에서 Redis를 여러 번 건드리면(이 인터셉터+`recordSearch`의 ZINCRBY+`enqueue`) 순차적으로 최대 몇 분까지 쌓일 수 있었던 것. `application-dev.yml`/`application-prod.yml`에 `spring.data.redis.timeout: 500ms` 추가(동일 호스트 Redis는 보통 수 ms 내 응답하므로 충분히 여유 있고, 장애 시 빠르게 실패해야 fail-open이 실제로 의미가 있음) — **이 설정이 없으면 Task 3~6에서 작성한 fail-open 코드가 전부 "결국은 열리지만 1~2분 뒤"라 사실상 무의미했음**
+
+**완료 기준**: ✅ 실제 서버로 확인 — 같은 IP로 검색 엔드포인트 연속 12회 호출 시 1~10번째 200, 11~12번째 429(`{"title":"Too Many Requests",...}`) 확인. `autocomplete`는 같은 조건에서 제한 없음 확인. 타임아웃 수정 후 Redis를 내린 상태에서도 검색이 **1.2초 만에** 200 정상 응답(수정 전엔 2분+ 걸렸음). 테스트로 "INCR 결과가 1일 때만 EXPIRE 호출"과 "Redis 장애 시 fail-open" 둘 다 결정론적으로 검증. 전체 테스트 57개 통과.
 
 ### 7. 캐시 무효화 전략 점검 — 1h
 
@@ -175,7 +182,7 @@ PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 | 백그라운드 큐 | 6~8h | | 07/29 | 실동작 검증 중 실제 버그 2건 발견+수정(트랜잭션 미흡, 워커 예외 안전망) — 추정대로 검증 비중이 컸음 |
 | 전적 갱신 버튼 | 2~3h | | 07/29 | |
 | 인기 검색어 Redis 전환 | 2~3h | | 07/29 | Task 3/4의 Redis fail-open 소급 적용 포함(§8 원칙과 실제 구현 불일치 발견+수정) |
-| per-IP 제한 | 2~3h | | | |
+| per-IP 제한 | 2~3h | | 07/29 | Redis 타임아웃 미설정으로 fail-open이 최대 1~2분씩 걸리던 설정 버그 발견+수정(Task 3~5 소급 적용) |
 | 테스트 정리 | 1~2h | | | |
 
 ---

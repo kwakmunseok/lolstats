@@ -13,6 +13,10 @@ spring:
     redis:
       host: localhost
       port: 6379
+      # Lettuce's default command timeout is 60s - far too long for the fail-open paths
+      # (Phase 2 Task 3~6) to actually feel "open" during an outage. Same-host Redis normally
+      # responds in low single-digit ms, so 500ms is generous while still failing fast.
+      timeout: 500ms
 
 server:
   port: 8080
