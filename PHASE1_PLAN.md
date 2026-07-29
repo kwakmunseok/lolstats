@@ -16,11 +16,11 @@
 다음 세션 시작 시 순서:
 1. Docker Desktop 켜져 있는지 확인 → `docker compose up -d mysql` (컨테이너/볼륨은 유지되므로 데이터 그대로 살아있음)
 2. `.env`의 `RIOT_API_KEY`가 아직 유효한지 확인 — Dev Key는 24h 만료라 하루 지났으면 포털에서 재발급 필요
-3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(31개) 통과 확인 후 Phase 2 착수(별도 계획서 작성 필요 — PHASE2_PLAN.md 없음)
+3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(31개) 통과 확인 후 [PHASE2_PLAN.md](./PHASE2_PLAN.md) Task 0부터 착수
 
 **현재 로컬 DB 상태**: "Hide on bush#KR1" 소환사 1건 + 매치 21건(협곡 18건 + 아레나 3건). 아레나 3건은 DB엔 그대로 남아있지만 조회 시 `RIFT_QUEUE_TYPES` 필터로 제외됨(화면·API 둘 다) — 의도된 동작.
 
-**다음 작업**: Phase 2 계획 수립(PHASE1_PLAN.md 수준의 상세 WBS 문서가 아직 없음) — Bucket4j 전역 리미터, 백그라운드 수집 큐, [전적 갱신] 버튼, Redis 4종 용도, 429 재시도부터 시작(§1 목록 참고).
+**다음 작업**: [PHASE2_PLAN.md](./PHASE2_PLAN.md) Task 0(Redis 로컬 세팅)부터 시작.
 
 **이번 세션에서 발견해 코드/문서에 이미 반영된 것들** (재발견 방지용 기록):
 - Spring Boot 3.x는 2026-07-28 기준 start.spring.io에서 생성 자체가 막혀 있음(EOL) → **4.1.0으로 변경**(계획서 원안은 3.x). Jackson도 3.x(`tools.jackson.*` — 기존 `com.fasterxml.jackson.databind` 아님)로 같이 바뀜, `JsonNode` 등 임포트 시 주의
