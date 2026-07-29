@@ -6,17 +6,21 @@ import com.lolstats.client.dto.RiotMatchResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 // No real Riot API key needed: MockRestServiceServer intercepts the HTTP layer so this
@@ -141,6 +145,41 @@ class RiotApiClientImplTest {
         assertEquals(1, result.info().participants().size());
         assertEquals("Faker", result.info().participants().get(0).riotIdGameName());
         assertEquals(103, result.info().participants().get(0).championId());
+        regionalServer.verify();
+    }
+
+    @Test
+    void getMatchById_retriesAfter429_thenSucceeds() {
+        regionalServer.expect(requestTo(REGIONAL_URL + "/lol/match/v5/matches/KR_9999999999"))
+                .andExpect(method(GET))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).header("Retry-After", "0"));
+        regionalServer.expect(requestTo(REGIONAL_URL + "/lol/match/v5/matches/KR_9999999999"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {
+                          "metadata": {"matchId": "KR_9999999999"},
+                          "info": {
+                            "gameCreation": 1700000000000,
+                            "gameDuration": 1800,
+                            "queueId": 420,
+                            "participants": []
+                          }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        RiotMatchResponse result = client.getMatchById("KR_9999999999");
+
+        assertEquals("KR_9999999999", result.metadata().matchId());
+        regionalServer.verify();
+    }
+
+    @Test
+    void getMatchById_doesNotRetryOn401() {
+        regionalServer.expect(requestTo(REGIONAL_URL + "/lol/match/v5/matches/KR_9999999999"))
+                .andExpect(method(GET))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+
+        assertThrows(HttpClientErrorException.Unauthorized.class, () -> client.getMatchById("KR_9999999999"));
         regionalServer.verify();
     }
 }

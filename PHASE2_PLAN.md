@@ -10,16 +10,18 @@
 - [ ] Bucket4j 의존성 확정 — `bucket4j-core` 최신 안정판(단일 인스턴스라 `bucket4j-redis` 통합 불필요 — PROJECT_PLAN.md §4 Phase 2 명시). Spring Boot 4.1 신규 버전이라 착수 시점에 Maven Central에서 최신 버전·Java 17 호환 재확인 필요(PHASE1_PLAN.md §5의 Spring Boot 버전 변경 건과 동일한 이유로 미리 못 박지 않음)
 - [ ] Redis 사용 방식 확정 — **Spring Cache 추상화(`@Cacheable` 등) 사용 안 함**. `StringRedisTemplate`으로 `SETNX`/`INCR`/`EXPIRE`/`ZINCRBY`/`ZREVRANGE` 원자 연산을 직접 호출(PROJECT_PLAN.md §2-6 학습 목적 — Redis 관용 패턴을 손으로 익히는 게 목적이라 추상화가 가리면 안 됨)
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 1까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 2까지 완료)
 
-**Task 0(Redis)~1(Bucket4j) 완료 / Task 2(429 재시도)부터 재개**
+**Task 0(Redis)~2(429 재시도) 완료 / Task 3(백그라운드 매치 수집 큐)부터 재개**
 
 다음 세션 시작 시 순서:
 1. `docker compose up -d` — MySQL + Redis 둘 다 기동(볼륨 유지, 데이터 그대로)
 2. `.env`의 `RIOT_API_KEY` 유효성 확인(24h 만료)
-3. `RIOT_API_KEY=<키> ./gradlew test`로 31개 통과 확인 후 Task 2 착수
+3. `RIOT_API_KEY=<키> ./gradlew test`로 33개 통과 확인 후 Task 3 착수
 
 **참고**: `RiotApiConfig`의 두 `RestClient` 빈이 이제 전역 Bucket4j 인터셉터를 거침 — 검색을 연달아 여러 번 하면(신규 소환사 1명 = 최대 24회 호출) 두 번째 소환사부터 체감 지연이 생길 수 있음(정상 동작, 라이브 테스트 시 참고).
+
+**학습 커브 점검 시점**: 사용자 요청(2026-07-29)으로 Task 단위가 아니라 **Phase 2 전체 완료 후 한 번에** 점검하기로 함 — Phase 1은 Task 8까지 진행 후 세션 마무리 시점에 별다른 점검 없이 넘어갔었는데, Phase 2가 "전체에서 가장 무거운 Phase"(PROJECT_PLAN.md §10)라 실측 대비 학습 소화 속도를 한 번에 보기로 한 것. Phase 2 마지막 Task(8. 테스트 정리) 완료 시점에 먼저 점검 여부를 물어볼 것.
 
 ## 1. 이 문서 범위에 포함되지 않는 것
 
@@ -80,10 +82,11 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 ### 2. 429 재시도 로직 — 3~4h
 
-- [ ] `RiotApiClientImpl`에서 `HttpClientErrorException.TooManyRequests` 캐치 시 `Retry-After` 헤더값만큼 대기 후 재시도(최대 재시도 횟수 상한 필요 — 무한 루프 방지)
-- [ ] **Dev Key 만료(401/403) 시**: 재시도 의미 없으므로 즉시 실패 + 로그만 남김(§8 리스크 대응 — "큐 작업 연쇄 실패 방지"는 Task 3에서 큐 일시정지로 반영)
+- [x] `RiotApiClientImpl`의 5개 메서드가 공통으로 거치는 `withRetry(Supplier<T>)` 헬퍼 하나로 구현(메서드마다 try/catch 중복 방지) — `HttpClientErrorException.TooManyRequests` 캐치 시 `Retry-After` 헤더값(초, 없으면 기본 1초)만큼 대기 후 재시도. **최대 3회**로 상한(무한 루프 방지 — 임의로 정함, PROJECT_PLAN.md에 구체 수치 없어 이 문서에서 확정)
+- [x] **Dev Key 만료(401/403) 시**: `HttpClientErrorException.Unauthorized`/`.Forbidden`은 재시도 없이 로그만 남기고 즉시 재전파(§8 리스크 대응 — "큐 작업 연쇄 실패 방지"는 Task 3에서 큐 일시정지로 반영 예정)
+- [x] 로깅은 Lombok `@Slf4j`(이미 프로젝트 의존성 — 신규 로깅 라이브러리 추가 없음)
 
-**완료 기준**: Mockito로 "1회 429 → 재시도 성공" 케이스, "401은 재시도 없이 즉시 예외 전파" 케이스 테스트.
+**완료 기준**: ✅ `RiotApiClientImplTest`에 `MockRestServiceServer`로 2케이스 추가 — 1회 429(`Retry-After: 0`) 후 재시도 성공, 401은 재시도 없이 `HttpClientErrorException.Unauthorized` 즉시 전파(등록된 mock 응답이 1개뿐이라 재시도했다면 `verify()`에서 실패했을 것). 전체 테스트 33개 통과.
 
 ### 3. 백그라운드 매치 수집 큐 — 6~8h
 
@@ -151,7 +154,7 @@ PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 |---|---|---|---|---|
 | Redis 세팅 | 0.5~1h | | 07/29 | |
 | Bucket4j | 4~5h | | 07/29 | |
-| 429 재시도 | 3~4h | | | |
+| 429 재시도 | 3~4h | | 07/29 | |
 | 백그라운드 큐 | 6~8h | | | 실동작 검증 비중이 커서 단축 폭이 작을 것으로 예상 |
 | 전적 갱신 버튼 | 2~3h | | | |
 | 인기 검색어 Redis 전환 | 2~3h | | | |
