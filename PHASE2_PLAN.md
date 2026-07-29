@@ -10,14 +10,15 @@
 - [ ] Bucket4j 의존성 확정 — `bucket4j-core` 최신 안정판(단일 인스턴스라 `bucket4j-redis` 통합 불필요 — PROJECT_PLAN.md §4 Phase 2 명시). Spring Boot 4.1 신규 버전이라 착수 시점에 Maven Central에서 최신 버전·Java 17 호환 재확인 필요(PHASE1_PLAN.md §5의 Spring Boot 버전 변경 건과 동일한 이유로 미리 못 박지 않음)
 - [ ] Redis 사용 방식 확정 — **Spring Cache 추상화(`@Cacheable` 등) 사용 안 함**. `StringRedisTemplate`으로 `SETNX`/`INCR`/`EXPIRE`/`ZINCRBY`/`ZREVRANGE` 원자 연산을 직접 호출(PROJECT_PLAN.md §2-6 학습 목적 — Redis 관용 패턴을 손으로 익히는 게 목적이라 추상화가 가리면 안 됨)
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 4까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 5까지 완료)
 
-**Task 0(Redis)~4([전적 갱신] 버튼) 완료 / Task 5(인기 검색어 Redis ZSet 전환)부터 재개**
+**Task 0(Redis)~5(인기 검색어 Redis 전환) 완료 / Task 6(per-IP 요청 제한)부터 재개**
 
 다음 세션 시작 시 순서:
 1. `docker compose up -d` — MySQL + Redis 둘 다 기동(볼륨 유지, 데이터 그대로)
-2. `.env`의 `RIOT_API_KEY` 유효성 확인(24h 만료)
-3. `RIOT_API_KEY=<키> ./gradlew test`로 44개 통과 확인 후 Task 5 착수
+2. `.env`의 `RIOT_API_KEY`를 **반드시 재발급**할 것 — Task 5 마무리 시점에 24h 만료돼 있었고, 이 세션의 라이브 테스트 상당수를 Redis만 직접 조작하는 방식으로 우회함(아래 참고)
+3. `RIOT_API_KEY=<키> ./gradlew test`로 53개 통과 확인 후 Task 6 착수
+4. **재발급 후 여유 있으면**: `[전적 갱신]` 버튼을 유효한 키로 다시 라이브 호출해서 §3 Task 5 "라이브 검증 중 발견한 별도 이슈"(Redis 다운 + 만료된 키 조합에서 응답이 2분 넘게 멈췄던 현상)가 키를 정상으로 바꾸면 재현되는지 확인 — Bucket4j 버킷 소진 때문이었는지, 다른 원인이 있는지 아직 미확정
 
 **참고**: `RiotApiConfig`의 두 `RestClient` 빈이 이제 전역 Bucket4j 인터셉터를 거침 — 검색을 연달아 여러 번 하면(신규 소환사 1명 = 최대 24회 호출) 두 번째 소환사부터 체감 지연이 생길 수 있음(정상 동작, 라이브 테스트 시 참고).
 
@@ -119,10 +120,14 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 ### 5. 인기 검색어 Redis ZSet 전환 — 2~3h
 
-- [ ] 검색 성공 시 `SEARCH_COUNTS` DB 카운터 증가와 **함께** `ZINCRBY search_rank 1 {summonerId}` (정본은 SEARCH_COUNTS, Redis는 실시간 랭킹 캐시)
-- [ ] `GET /api/summoners/popular` — **Redis `ZREVRANGE` 우선 조회**, Redis 장애/키 유실 시 SEARCH_COUNTS에서 재구성(fail-open, §8 리스크: Redis 장애 시 보호 기능만 잃고 본기능은 정상)
+- [x] 검색 성공 시(`SummonerService.recordSearch`) `SEARCH_COUNTS` DB 카운터 증가와 **함께** `ZINCRBY search_rank 1 {summonerId}` (정본은 SEARCH_COUNTS, Redis는 실시간 랭킹 캐시)
+- [x] `GET /api/summoners/popular` — **Redis `ZREVRANGE` 우선 조회**, 결과가 비어있거나(콜드 스타트 포함) Redis 예외 시 `SEARCH_COUNTS`에서 재구성(fail-open, §8 리스크)
 
-**완료 기준**: 정상 상태에서 Redis 값 기준 응답 확인 + **Redis를 강제로 내린 상태에서도** popular API가 DB 폴백으로 200을 반환하는 것 라이브 확인.
+**범위 확장(같은 세션에서 소급 적용)**: §8이 "쿨다운·중복 큐잉 방지·per-IP 제한이 전부 Redis"라며 fail-open을 **네 기능 모두**에 대한 원칙으로 명시하고 있었는데, 정작 Task 3(수집 큐)·Task 4(갱신 쿨다운)는 구현 당시 이 문서에 fail-open이 Task 5에만 적힌 걸 그대로 따라가서 Redis 예외를 안 잡고 있었음(Redis가 죽으면 검색/갱신 API 자체가 500 나는 상태). Task 5에서 fail-open 패턴을 실제로 작성하면서 이 불일치를 발견해 **`MatchCollectionQueue`(enqueue/isCollecting/totalCount/heartbeat/delete)와 `SummonerService`(cooldown 체크/설정)에도 동일하게 `DataAccessException` catch를 소급 적용**. 계획서상 결정된 원칙과 실제 구현이 어긋나 있던 걸 바로잡은 것이라 Task 5 범위로 포함시킴(새 기능 추가가 아니라 이미 정해진 원칙을 뒤늦게 지킨 것).
+
+**완료 기준**: ✅ 실제 서버로 확인 — `search_rank` ZSET을 직접 시딩 후 `popular` API가 정상 응답, **Redis 컨테이너를 완전히 내린 상태에서도** `popular`(DB 폴백, 200)와 `/api/summoners/{id}/matches`(`collecting:false`/`totalCount:null`로 즉시 폴백, 200) 둘 다 빠르게 정상 응답하는 것 확인. 나머지 fail-open 케이스(`MatchCollectionQueue`/쿨다운)는 유닛 테스트로 결정론적 검증(§ 아래 "라이브 검증 중 발견한 별도 이슈" 참고 — 갱신 버튼 라이브 검증은 다른 이유로 막힘). 전체 테스트 53개 통과.
+
+**라이브 검증 중 발견한 별도 이슈(Task 5와 무관, 기록만)**: Redis를 내린 상태에서 `[전적 갱신]`을 호출했더니 응답이 2분 넘게 멈췄고, 뒤이어 다른 API(`/popular`)까지 한동안 응답이 느려짐. 원인은 Redis가 아니라 **당시 Riot Dev Key가 만료돼 있었고 + 오늘 세션 내내 라이브 테스트를 많이 돌려 Bucket4j 버킷이 상당히 소진된 상태**였을 가능성이 높음(정확한 원인은 유효한 키로 재검증 필요). `open-in-view=true` 상태에서 요청 스레드가 오래 잡혀있으면 HikariCP 커넥션 풀까지 압박할 수 있다는 점도 함께 기록 — Phase 5 운영 최소한 점검 시 재확인 대상.
 
 ### 6. per-IP 요청 제한 — 2~3h
 
@@ -169,7 +174,7 @@ PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 | 429 재시도 | 3~4h | | 07/29 | |
 | 백그라운드 큐 | 6~8h | | 07/29 | 실동작 검증 중 실제 버그 2건 발견+수정(트랜잭션 미흡, 워커 예외 안전망) — 추정대로 검증 비중이 컸음 |
 | 전적 갱신 버튼 | 2~3h | | 07/29 | |
-| 인기 검색어 Redis 전환 | 2~3h | | | |
+| 인기 검색어 Redis 전환 | 2~3h | | 07/29 | Task 3/4의 Redis fail-open 소급 적용 포함(§8 원칙과 실제 구현 불일치 발견+수정) |
 | per-IP 제한 | 2~3h | | | |
 | 테스트 정리 | 1~2h | | | |
 

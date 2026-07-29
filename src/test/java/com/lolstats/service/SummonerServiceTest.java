@@ -12,13 +12,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -47,12 +51,18 @@ class SummonerServiceTest {
     private StringRedisTemplate redisTemplate;
     @Mock
     private ValueOperations<String, String> valueOperations;
+    @Mock
+    private ZSetOperations<String, String> zSetOperations;
 
     private SummonerService service;
 
     @BeforeEach
     void setUp() {
         service = new SummonerService(summonerRepository, searchCountRepository, riotApiClient, redisTemplate, 10);
+
+        // recordSearch() (called by every findOrFetch()/refresh() test) always tries the
+        // ZINCRBY ranking update - stub it so those tests don't need to know about Redis.
+        lenient().when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
 
         // Mimics JPA assigning a generated id on first insert; tests override with
         // pre-set ids where a row is meant to already exist.
@@ -250,5 +260,67 @@ class SummonerServiceTest {
         service.startRefreshCooldown(1L);
 
         verify(valueOperations).set("cooldown:1", "1", Duration.ofSeconds(60));
+    }
+
+    @Test
+    void isRefreshCoolingDown_failsOpen_whenRedisUnavailable() {
+        when(redisTemplate.hasKey("cooldown:1")).thenThrow(new QueryTimeoutException("redis down"));
+
+        assertFalse(service.isRefreshCoolingDown(1L));
+    }
+
+    @Test
+    void startRefreshCooldown_doesNotThrow_whenRedisUnavailable() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        doThrow(new QueryTimeoutException("redis down"))
+                .when(valueOperations).set(any(), any(), any(Duration.class));
+
+        service.startRefreshCooldown(1L); // must not throw
+    }
+
+    @Test
+    void recordSearch_ranksSummonerAndFailsOpen_whenRedisUnavailable() {
+        when(summonerRepository.findByGameNameAndTagLine("Hide on bush", "KR1")).thenReturn(List.of());
+        when(riotApiClient.getAccountByRiotId("Hide on bush", "KR1"))
+                .thenReturn(new RiotAccountResponse("puuid-1", "Hide on bush", "KR1"));
+        when(summonerRepository.findByPuuid("puuid-1")).thenReturn(Optional.empty());
+        when(riotApiClient.getSummonerByPuuid("puuid-1")).thenReturn(new RiotSummonerResponse("puuid-1", 1, 30));
+        when(riotApiClient.getLeagueEntriesByPuuid("puuid-1")).thenReturn(List.of());
+        when(searchCountRepository.findById(99L)).thenReturn(Optional.empty());
+        when(zSetOperations.incrementScore(eq("search_rank"), eq("99"), eq(1.0)))
+                .thenThrow(new QueryTimeoutException("redis down"));
+
+        Summoner result = service.findOrFetch("Hide on bush", "KR1"); // must not throw despite Redis failing
+
+        assertEquals("puuid-1", result.getPuuid());
+        verify(searchCountRepository).save(any());
+    }
+
+    @Test
+    void popular_prefersRedisRankingOverDb_preservingOrder() {
+        Summoner second = Summoner.builder().id(2L).puuid("p2").gameName("Second").tagLine("KR1").build();
+        Summoner first = Summoner.builder().id(1L).puuid("p1").gameName("First").tagLine("KR1").build();
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.reverseRange("search_rank", 0, 4)).thenReturn(new LinkedHashSet<>(List.of("1", "2")));
+        when(summonerRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(second, first));
+
+        List<Summoner> result = service.popular(5);
+
+        assertEquals(List.of("p1", "p2"), result.stream().map(Summoner::getPuuid).toList());
+        verifyNoInteractions(searchCountRepository);
+    }
+
+    @Test
+    void popular_fallsBackToDb_whenRedisThrows() {
+        Summoner top = Summoner.builder().id(1L).puuid("p1").gameName("Faker").tagLine("KR1").build();
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.reverseRange(eq("search_rank"), any(Long.class), any(Long.class)))
+                .thenThrow(new QueryTimeoutException("redis down"));
+        when(searchCountRepository.findPopularSummoners(any())).thenReturn(List.of(top));
+
+        List<Summoner> result = service.popular(5);
+
+        assertEquals(1, result.size());
+        assertEquals("p1", result.get(0).getPuuid());
     }
 }

@@ -8,7 +8,9 @@ import com.lolstats.domain.SearchCount;
 import com.lolstats.domain.Summoner;
 import com.lolstats.repository.SearchCountRepository;
 import com.lolstats.repository.SummonerRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
@@ -22,8 +24,12 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class SummonerService {
 
@@ -34,6 +40,11 @@ public class SummonerService {
     // (PHASE2_PLAN.md Task 4 결정 사항).
     private static final String COOLDOWN_PREFIX = "cooldown:";
     private static final Duration COOLDOWN_TTL = Duration.ofSeconds(60);
+
+    // Real-time popular-search cache (PHASE2_PLAN.md Task 5). SEARCH_COUNTS is still the
+    // source of truth - this ZSET just avoids sorting the whole table on every request, and
+    // popular() falls back to SEARCH_COUNTS if Redis is empty or unreachable.
+    private static final String POPULAR_RANK_KEY = "search_rank";
 
     private final SummonerRepository summonerRepository;
     private final SearchCountRepository searchCountRepository;
@@ -76,15 +87,26 @@ public class SummonerService {
         return refreshed;
     }
 
+    // Fail-open (PROJECT_PLAN.md §8): if Redis is unreachable, allow the refresh through
+    // rather than permanently blocking the feature on a lost protection mechanism.
     public boolean isRefreshCoolingDown(Long summonerId) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(COOLDOWN_PREFIX + summonerId));
+        try {
+            return Boolean.TRUE.equals(redisTemplate.hasKey(COOLDOWN_PREFIX + summonerId));
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - allowing refresh through without a cooldown check", e);
+            return false;
+        }
     }
 
     // Called only after a refresh (including its match re-collection enqueue) has actually
     // gone through - a failed refresh shouldn't cost the user the cooldown window
     // (PROJECT_PLAN.md §4 Phase 2: "쿨다운은 큐잉 성공 후에 설정한다").
     public void startRefreshCooldown(Long summonerId) {
-        redisTemplate.opsForValue().set(COOLDOWN_PREFIX + summonerId, "1", COOLDOWN_TTL);
+        try {
+            redisTemplate.opsForValue().set(COOLDOWN_PREFIX + summonerId, "1", COOLDOWN_TTL);
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - refresh succeeded but its cooldown could not be set", e);
+        }
     }
 
     private boolean isFresh(Summoner summoner) {
@@ -126,6 +148,14 @@ public class SummonerService {
         searchCount.setSearchCount(searchCount.getSearchCount() + 1);
         searchCount.setLastSearchedAt(Instant.now());
         searchCountRepository.save(searchCount);
+
+        // SEARCH_COUNTS above is the source of truth; this is best-effort and must not affect
+        // search itself if Redis is down (fail-open, PROJECT_PLAN.md §8).
+        try {
+            redisTemplate.opsForZSet().incrementScore(POPULAR_RANK_KEY, summoner.getId().toString(), 1);
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - popular-search ranking not updated for summoner {}", summoner.getId(), e);
+        }
     }
 
     public List<Summoner> autocomplete(String query, int limit) {
@@ -146,6 +176,32 @@ public class SummonerService {
     }
 
     public List<Summoner> popular(int limit) {
+        List<Summoner> fromRedis = popularFromRedis(limit);
+        return fromRedis.isEmpty() ? popularFromDb(limit) : fromRedis;
+    }
+
+    // Empty is treated the same as "unavailable" and falls back to the DB - not just Redis
+    // being down, but also the ordinary cold-start case where SEARCH_COUNTS already has data
+    // (e.g. from before Redis was introduced) but the ZSET hasn't been populated yet.
+    private List<Summoner> popularFromRedis(int limit) {
+        try {
+            Set<String> ids = redisTemplate.opsForZSet().reverseRange(POPULAR_RANK_KEY, 0, limit - 1);
+            if (ids == null || ids.isEmpty()) {
+                return List.of();
+            }
+            List<Long> summonerIds = ids.stream().map(Long::valueOf).toList();
+            Map<Long, Summoner> byId = summonerRepository.findAllById(summonerIds).stream()
+                    .collect(Collectors.toMap(Summoner::getId, s -> s));
+            // Preserve Redis's rank order; a ranked id with no matching row shouldn't happen
+            // (summoners are never deleted) but is skipped defensively rather than NPE-ing.
+            return summonerIds.stream().map(byId::get).filter(Objects::nonNull).toList();
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - falling back to SEARCH_COUNTS for popular summoners", e);
+            return List.of();
+        }
+    }
+
+    private List<Summoner> popularFromDb(int limit) {
         return searchCountRepository.findPopularSummoners(PageRequest.of(0, limit));
     }
 }

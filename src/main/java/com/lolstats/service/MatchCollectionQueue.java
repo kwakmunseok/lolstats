@@ -3,6 +3,7 @@ package com.lolstats.service;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -49,21 +50,39 @@ public class MatchCollectionQueue {
         worker.interrupt();
     }
 
+    // Fail-open on Redis errors (PROJECT_PLAN.md §8: a Redis outage should only cost the
+    // protection Redis provides, not break search itself) - without Redis there's no way to
+    // dedupe concurrent collection jobs, so background collection is simply skipped for this
+    // request rather than queued without the guard.
     public void enqueue(String puuid, int totalCount) {
-        Boolean acquired = redisTemplate.opsForValue()
-                .setIfAbsent(KEY_PREFIX + puuid, String.valueOf(totalCount), TTL);
-        if (Boolean.TRUE.equals(acquired)) {
-            queue.offer(puuid);
+        try {
+            Boolean acquired = redisTemplate.opsForValue()
+                    .setIfAbsent(KEY_PREFIX + puuid, String.valueOf(totalCount), TTL);
+            if (Boolean.TRUE.equals(acquired)) {
+                queue.offer(puuid);
+            }
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - skipping background collection for puuid {}", puuid, e);
         }
     }
 
     public boolean isCollecting(String puuid) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_PREFIX + puuid));
+        try {
+            return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_PREFIX + puuid));
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - reporting collecting=false for puuid {}", puuid, e);
+            return false;
+        }
     }
 
     public Integer totalCount(String puuid) {
-        String value = redisTemplate.opsForValue().get(KEY_PREFIX + puuid);
-        return value == null ? null : Integer.valueOf(value);
+        try {
+            String value = redisTemplate.opsForValue().get(KEY_PREFIX + puuid);
+            return value == null ? null : Integer.valueOf(value);
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - reporting totalCount=null for puuid {}", puuid, e);
+            return null;
+        }
     }
 
     public boolean isPaused() {
@@ -85,12 +104,12 @@ public class MatchCollectionQueue {
     void process(String puuid) {
         if (paused) {
             log.warn("collection paused (Riot key was rejected earlier) - dropping queued puuid {}", puuid);
-            redisTemplate.delete(KEY_PREFIX + puuid);
+            deleteQuietly(puuid);
             return;
         }
         try {
             MatchService.CollectionPlan plan = matchService.planCollection(puuid);
-            matchService.collectMatches(plan.missingMatchIds(), () -> redisTemplate.expire(KEY_PREFIX + puuid, TTL));
+            matchService.collectMatches(plan.missingMatchIds(), () -> heartbeat(puuid));
         } catch (HttpClientErrorException.Unauthorized | HttpClientErrorException.Forbidden e) {
             paused = true;
             log.error("Riot API key rejected ({}) - pausing background collection until restart", e.getStatusCode());
@@ -101,7 +120,23 @@ public class MatchCollectionQueue {
             // until restart. Log and move on to the next queued puuid instead.
             log.error("Unexpected error collecting matches for puuid {}", puuid, e);
         } finally {
+            deleteQuietly(puuid);
+        }
+    }
+
+    private void heartbeat(String puuid) {
+        try {
+            redisTemplate.expire(KEY_PREFIX + puuid, TTL);
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - could not renew collecting TTL for puuid {}", puuid, e);
+        }
+    }
+
+    private void deleteQuietly(String puuid) {
+        try {
             redisTemplate.delete(KEY_PREFIX + puuid);
+        } catch (DataAccessException e) {
+            log.warn("Redis unavailable - could not clear collecting flag for puuid {} (TTL will expire it)", puuid, e);
         }
     }
 }

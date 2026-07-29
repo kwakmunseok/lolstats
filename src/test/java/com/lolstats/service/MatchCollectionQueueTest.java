@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.http.HttpHeaders;
@@ -14,10 +15,12 @@ import org.springframework.web.client.HttpClientErrorException;
 import java.time.Duration;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -115,5 +118,38 @@ class MatchCollectionQueueTest {
 
         verify(matchService, never()).planCollection("puuid-2");
         verify(redisTemplate).delete("collecting:puuid-2");
+    }
+
+    @Test
+    void enqueue_failsOpen_whenRedisUnavailable() {
+        when(valueOperations.setIfAbsent(eq("collecting:puuid-1"), eq("15"), eq(Duration.ofMinutes(5))))
+                .thenThrow(new QueryTimeoutException("redis down"));
+
+        queue.enqueue("puuid-1", 15); // must not throw - background collection is just skipped
+    }
+
+    @Test
+    void isCollecting_failsOpen_whenRedisUnavailable() {
+        when(redisTemplate.hasKey("collecting:puuid-1")).thenThrow(new QueryTimeoutException("redis down"));
+
+        assertFalse(queue.isCollecting("puuid-1"));
+    }
+
+    @Test
+    void totalCount_failsOpen_whenRedisUnavailable() {
+        when(valueOperations.get("collecting:puuid-1")).thenThrow(new QueryTimeoutException("redis down"));
+
+        assertEquals(null, queue.totalCount("puuid-1"));
+    }
+
+    @Test
+    void process_doesNotDieOrPause_whenRedisUnavailableDuringCleanup() {
+        when(matchService.planCollection("puuid-1"))
+                .thenReturn(new MatchService.CollectionPlan(1, List.of("KR_1")));
+        doThrow(new QueryTimeoutException("redis down")).when(redisTemplate).delete("collecting:puuid-1");
+
+        queue.process("puuid-1"); // must not throw
+
+        assertFalse(queue.isPaused()); // a Redis outage isn't a Riot key problem
     }
 }
