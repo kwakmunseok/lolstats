@@ -10,9 +10,14 @@
 - [ ] Bucket4j 의존성 확정 — `bucket4j-core` 최신 안정판(단일 인스턴스라 `bucket4j-redis` 통합 불필요 — PROJECT_PLAN.md §4 Phase 2 명시). Spring Boot 4.1 신규 버전이라 착수 시점에 Maven Central에서 최신 버전·Java 17 호환 재확인 필요(PHASE1_PLAN.md §5의 Spring Boot 버전 변경 건과 동일한 이유로 미리 못 박지 않음)
 - [ ] Redis 사용 방식 확정 — **Spring Cache 추상화(`@Cacheable` 등) 사용 안 함**. `StringRedisTemplate`으로 `SETNX`/`INCR`/`EXPIRE`/`ZINCRBY`/`ZREVRANGE` 원자 연산을 직접 호출(PROJECT_PLAN.md §2-6 학습 목적 — Redis 관용 패턴을 손으로 익히는 게 목적이라 추상화가 가리면 안 됨)
 
-## 0.1 진행 현황 & 재개 방법
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 0까지 완료)
 
-**아직 착수 전.** Phase 1 완료 시점(2026-07-29) 기준 다음 세션에서 Task 0부터 시작.
+**Task 0(Redis 로컬 세팅) 완료 / Task 1(Bucket4j)부터 재개**
+
+다음 세션 시작 시 순서:
+1. `docker compose up -d` — MySQL + Redis 둘 다 기동(볼륨 유지, 데이터 그대로)
+2. `.env`의 `RIOT_API_KEY` 유효성 확인(24h 만료)
+3. `RIOT_API_KEY=<키> ./gradlew test`로 31개 통과 확인 후 Task 1 착수
 
 ## 1. 이 문서 범위에 포함되지 않는 것
 
@@ -57,11 +62,11 @@ PROJECT_PLAN.md §4 Phase 2 원문의 항목 나열 순서(Bucket4j → per-IP �
 
 ### 0. Redis 로컬 세팅 — 0.5~1h
 
-- [ ] `docker-compose.yml`에 `redis` 서비스 추가, `docker compose up -d`로 MySQL과 함께 기동 확인
-- [ ] `application-dev.yml`에 `spring.data.redis.host/port` 추가
-- [ ] `StringRedisTemplate` 빈이 정상 주입되는지 확인(기본 자동 설정 — 별도 `@Configuration` 불필요)
+- [x] `docker-compose.yml`에 `redis` 서비스 추가(`redis:7-alpine`, 포트 6379 — 로컬에 충돌 없음 확인 후 그대로 사용), `docker compose up -d`로 MySQL과 함께 기동 확인
+- [x] `spring-boot-starter-data-redis` 의존성 추가, `application-dev.yml`(`localhost:6379`)·`application-prod.yml`(`${REDIS_HOST}`/`${REDIS_PORT:6379}` — DB_URL과 동일하게 prod는 필수 env, 기본값 없음) 둘 다 반영
+- [x] `StringRedisTemplate` 빈이 정상 주입되는지 확인(기본 자동 설정 — 별도 `@Configuration` 불필요)
 
-**완료 기준**: 앱 기동 로그에서 Redis 연결 확인 + 임시 테스트로 `SET`/`GET` 라이브 확인(확인 후 삭제).
+**완료 기준**: ✅ 임시 `@SpringBootTest`(`RedisLiveCheckTest`)로 실제 로컬 Redis에 `SET`/`GET` 라이브 확인 후 삭제(커밋 안 함). 전체 테스트 31개 그대로 통과(Redis 자동 설정 추가로 인한 회귀 없음).
 
 ### 1. Bucket4j 전역 Rate Limiter — 4~5h
 
@@ -142,7 +147,7 @@ PROJECT_PLAN.md §4 Phase 2 체크리스트 전체 충족 + 아래 확인:
 
 | 항목 | 추정 | 실측 | 완료일 | 메모 |
 |---|---|---|---|---|
-| Redis 세팅 | 0.5~1h | | | |
+| Redis 세팅 | 0.5~1h | | 07/29 | |
 | Bucket4j | 4~5h | | | |
 | 429 재시도 | 3~4h | | | |
 | 백그라운드 큐 | 6~8h | | | 실동작 검증 비중이 커서 단축 폭이 작을 것으로 예상 |
