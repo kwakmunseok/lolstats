@@ -9,18 +9,18 @@
 - [x] 로컬 MySQL 실행 방법 확정 — docker-compose로 MySQL만 (Redis는 Phase 2). **로컬에 이미 다른 MySQL 서비스가 3306을 쓰고 있어 호스트 포트는 3307**로 변경(`docker-compose.yml`, `application-dev.yml` 반영됨)
 - [x] 패키지 루트(GroupId) 확정 — `com.lolstats`
 
-## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Task 9까지 완료)
+## 0.1 진행 현황 & 재개 방법 (마지막 갱신: 2026-07-29, Phase 1 완료)
 
-**Phase 1 진행: Task 0~9 완료 / Task 10(테스트 정리) 마무리만 남음 — 이미 각 Task와 병행하며 대부분 충족된 상태라 빈틈만 확인하면 됨**
+**Phase 1 전체 완료 (Task 0~10) — §4 Definition of Done 3개 항목 전부 충족. 다음 세션은 Phase 2(§1 범위 밖 목록 참고: Bucket4j, 백그라운드 수집 큐, [전적 갱신], Redis 등)부터 시작**
 
 다음 세션 시작 시 순서:
 1. Docker Desktop 켜져 있는지 확인 → `docker compose up -d mysql` (컨테이너/볼륨은 유지되므로 데이터 그대로 살아있음)
 2. `.env`의 `RIOT_API_KEY`가 아직 유효한지 확인 — Dev Key는 24h 만료라 하루 지났으면 포털에서 재발급 필요
-3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(34개) 통과 확인 후 Task 10 착수
+3. `RIOT_API_KEY=<키> ./gradlew test` 로 전체 테스트(31개) 통과 확인 후 Phase 2 착수(별도 계획서 작성 필요 — PHASE2_PLAN.md 없음)
 
 **현재 로컬 DB 상태**: "Hide on bush#KR1" 소환사 1건 + 매치 21건(협곡 18건 + 아레나 3건). 아레나 3건은 DB엔 그대로 남아있지만 조회 시 `RIFT_QUEUE_TYPES` 필터로 제외됨(화면·API 둘 다) — 의도된 동작.
 
-**다음 작업**: Task 10 — SummonerService/매치 수집/자동완성/DataDragon 매핑 테스트가 이미 각 Task에서 작성돼 있는지 마지막으로 훑고 빈틈만 채우기. 이후 §4 Phase 1 DoD 3개 항목(신규 검색→프로필→매치 상세 브라우저 확인, 재검색 시 캐시로 API 미호출 로그 확인, 나머지 항목) 최종 점검.
+**다음 작업**: Phase 2 계획 수립(PHASE1_PLAN.md 수준의 상세 WBS 문서가 아직 없음) — Bucket4j 전역 리미터, 백그라운드 수집 큐, [전적 갱신] 버튼, Redis 4종 용도, 429 재시도부터 시작(§1 목록 참고).
 
 **이번 세션에서 발견해 코드/문서에 이미 반영된 것들** (재발견 방지용 기록):
 - Spring Boot 3.x는 2026-07-28 기준 start.spring.io에서 생성 자체가 막혀 있음(EOL) → **4.1.0으로 변경**(계획서 원안은 3.x). Jackson도 3.x(`tools.jackson.*` — 기존 `com.fasterxml.jackson.databind` 아님)로 같이 바뀜, `JsonNode` 등 임포트 시 주의
@@ -194,10 +194,12 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 > §4 테스트 정책: 각 항목 구현과 **같은 작업 단위**에서 Service 테스트를 함께 작성 — 별도 "테스트 Phase"로 미루지 않음. 아래는 항목 3~7 작업 중 자연히 쌓이는 테스트의 목록이며, 마지막에 빈틈만 정리.
 
-- [ ] `SummonerService` — 캐시 히트/미스/만료, 닉네임 변경 케이스 (Riot 클라이언트 Mockito mock)
-- [ ] 매치 수집 서비스 — 이미 있는 매치 skip, 429 부분 실패 케이스
-- [ ] 자동완성 — dedupe 로직
-- [ ] Data Dragon 매핑 — 버전 갱신 트리거 조건
+- [x] `SummonerService` — 캐시 히트/미스/만료, 닉네임 변경 케이스 (Riot 클라이언트 Mockito mock) — `SummonerServiceTest`에 Task 3에서 이미 작성됨(4케이스: fresh hit / expired refetch / unranked null / 닉네임 소유자 변경)
+- [x] 매치 수집 서비스 — 이미 있는 매치 skip, 429 부분 실패 케이스 — `MatchServiceTest`에 Task 4에서 이미 작성됨(4케이스)
+- [x] 자동완성 — dedupe 로직 — `SummonerServiceTest`에 Task 7에서 이미 작성됨(dedupe + limit 2케이스)
+- [x] Data Dragon 매핑 — 버전 갱신 트리거 조건 — **빈틈 발견**: Task 5엔 "TTL 이내 재조회 안 함"만 있고 "TTL 만료 시 실제로 재조회"는 테스트가 없었음. `lookupAfterIntervalElapses_refetchesNewVersion` 추가(0시간 TTL로 결정론적 만료 유도 — `Clock` 주입 등 프로덕션 코드 변경 없이 테스트만으로 해결)
+
+**완료 기준**: ✅ `./gradlew test` 31개 전부 통과. 항목 3개는 이미 충족 확인, DataDragon 버전 갱신 트리거만 테스트 1개 추가로 빈틈 채움.
 
 ---
 
@@ -205,9 +207,11 @@ Phase 1에 필요한 4개 테이블만 우선 구현 (PROJECT_PLAN.md §6 전체
 
 PROJECT_PLAN.md §4 Phase 1 체크리스트 전체 충족 + 아래 3가지 확인:
 
-1. 신규 닉네임 검색 → 프로필 → 매치 상세까지 실제 브라우저에서 동작
-2. 같은 소환사 재검색 시 Riot API 호출이 (로그 기준) 발생하지 않음 — DB 캐시가 실제로 동작하는지가 Phase 1의 핵심 검증 포인트
-3. 패치 버전이 바뀌어도 아이콘이 깨지지 않는 구조(버전 하드코딩 없음)임을 코드 리뷰로 확인
+1. ✅ 신규 닉네임 검색 → 프로필 → 매치 상세까지 실제 브라우저에서 동작 (Task 9, 사용자 브라우저 확인 완료)
+2. ✅ 같은 소환사 재검색 시 Riot API 호출이 (로그 기준) 발생하지 않음 — Task 3 라이브 검증 시 Hibernate SQL 로그로 확인(캐시 히트 시 SELECT 한 줄만 찍히고 Riot 호출 없음)
+3. ✅ 패치 버전이 바뀌어도 아이콘이 깨지지 않는 구조(버전 하드코딩 없음) — 코드 구조상 항상 `client.getVersions().get(0)`을 거쳐 캐싱(하드코딩 없음) + Task 10에서 추가한 `lookupAfterIntervalElapses_refetchesNewVersion` 테스트로 버전 교체 시 실제로 새 URL이 나오는 것까지 검증
+
+**Phase 1 완료.**
 
 ## 5. 결정 사항 (확정)
 

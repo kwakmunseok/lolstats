@@ -107,4 +107,19 @@ class DataDragonServiceTest {
         verify(client, times(1)).getVersions();
         verify(client, times(1)).getChampions("16.14.1");
     }
+
+    @Test
+    void lookupAfterIntervalElapses_refetchesNewVersion() {
+        // 0-hour interval means isFresh() is false as soon as any time passes since the last
+        // refresh - a deterministic way to force the "stale" branch without sleeping or a Clock.
+        DataDragonService alwaysStale = new DataDragonService(client, 0);
+        alwaysStale.getChampion(103); // @BeforeEach already stubbed client for version 16.14.1
+
+        stubDdragonResponses("16.15.1");
+        Optional<DataDragonService.ChampionInfo> ahri = alwaysStale.getChampion(103);
+
+        assertTrue(ahri.isPresent());
+        assertEquals("https://ddragon.leagueoflegends.com/cdn/16.15.1/img/champion/Ahri.png", ahri.get().imageUrl());
+        verify(client, times(2)).getVersions();
+    }
 }
