@@ -33,7 +33,9 @@ import java.util.stream.Collectors;
 @Service
 public class SummonerService {
 
-    private static final String SOLO_QUEUE = "RANKED_SOLO_5x5";
+    // Public so the crawler (com.lolstats.crawler) can reuse it instead of duplicating the
+    // literal (CRAWLER_PLAN.md - crawler only ever descends the solo-queue ladder).
+    public static final String SOLO_QUEUE = "RANKED_SOLO_5x5";
 
     // [전적 갱신] cooldown - short on purpose (unlike the 10min search cache): it's an
     // explicit user action meant to be usable fairly often, just not spammable

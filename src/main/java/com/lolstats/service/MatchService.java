@@ -65,20 +65,29 @@ public class MatchService {
         return new CollectionPlan(matchIds.size(), missing);
     }
 
+    // complete=false means a 429 cut the run short (savedCount is whatever got through before
+    // that). The crawler (CRAWLER_PLAN.md §3 Task 2) needs this to tell "fully backfilled" from
+    // "partially backfilled" - the latter must stay eligible for retry, not get marked done.
+    public record CollectionResult(int savedCount, boolean complete) {
+    }
+
     // Phase 1 capped this at 5 detail fetches per search; Phase 2's background worker isn't
     // blocking a request thread anymore, so it works through everything missing.
-    public void collectMatches(List<String> matchIds, Runnable afterEachSave) {
+    public CollectionResult collectMatches(List<String> matchIds, Runnable afterEachSave) {
+        int savedCount = 0;
         for (String matchId : matchIds) {
             try {
                 saveMatch(riotApiClient.getMatchById(matchId));
+                savedCount++;
                 afterEachSave.run();
             } catch (HttpClientErrorException.TooManyRequests e) {
                 // RiotApiClientImpl already retries 429s a bounded number of times (Phase 2
                 // Task 2) - this only triggers once those retries are exhausted, so stop
                 // quietly and keep whatever was already saved rather than fail the whole run.
-                break;
+                return new CollectionResult(savedCount, false);
             }
         }
+        return new CollectionResult(savedCount, true);
     }
 
     private void saveMatch(RiotMatchResponse response) {

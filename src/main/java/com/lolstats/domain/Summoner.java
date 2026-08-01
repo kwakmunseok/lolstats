@@ -57,4 +57,10 @@ public class Summoner {
 
     @Column(name = "updated_at")
     private Instant updatedAt;
+
+    // Set once the crawler has fully backfilled this puuid's matches (CRAWLER_PLAN.md Task 1/2).
+    // Null = never backfilled or only partially backfilled (429 cut it short) - either way the
+    // crawler must retry. Deliberately untouched by the normal search path (SummonerService).
+    @Column(name = "crawler_backfilled_at")
+    private Instant crawlerBackfilledAt;
 }

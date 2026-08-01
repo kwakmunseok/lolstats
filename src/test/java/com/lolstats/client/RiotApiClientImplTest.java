@@ -2,6 +2,7 @@ package com.lolstats.client;
 
 import com.lolstats.client.dto.RiotAccountResponse;
 import com.lolstats.client.dto.RiotLeagueEntryResponse;
+import com.lolstats.client.dto.RiotLeagueSeedEntryResponse;
 import com.lolstats.client.dto.RiotMatchResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -92,6 +93,81 @@ class RiotApiClientImplTest {
 
         assertEquals(1, result.size());
         assertEquals("RANKED_SOLO_5x5", result.get(0).queueType());
+        platformServer.verify();
+    }
+
+    @Test
+    void getAccountByPuuid_usesRegionalRoutingAndByPuuidEndpoint() {
+        regionalServer.expect(requestTo(REGIONAL_URL + "/riot/account/v1/accounts/by-puuid/puuid-1"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {"puuid":"puuid-1","gameName":"Hide on bush","tagLine":"KR1"}
+                        """, MediaType.APPLICATION_JSON));
+
+        RiotAccountResponse result = client.getAccountByPuuid("puuid-1");
+
+        assertEquals("Hide on bush", result.gameName());
+        regionalServer.verify();
+    }
+
+    @Test
+    void getChallengerLeague_usesPlatformRouting_andMapsWrapperTierOntoEachEntry() {
+        platformServer.expect(requestTo(PLATFORM_URL + "/lol/league/v4/challengerleagues/by-queue/RANKED_SOLO_5x5"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {"tier":"CHALLENGER","entries":[{"puuid":"puuid-1","rank":"I","leaguePoints":1487,"wins":312,"losses":198}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<RiotLeagueSeedEntryResponse> result = client.getChallengerLeague("RANKED_SOLO_5x5");
+
+        assertEquals(1, result.size());
+        assertEquals("puuid-1", result.get(0).puuid());
+        assertEquals("CHALLENGER", result.get(0).tier());
+        platformServer.verify();
+    }
+
+    @Test
+    void getGrandmasterLeague_usesGrandmasterEndpoint() {
+        platformServer.expect(requestTo(PLATFORM_URL + "/lol/league/v4/grandmasterleagues/by-queue/RANKED_SOLO_5x5"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {"tier":"GRANDMASTER","entries":[]}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<RiotLeagueSeedEntryResponse> result = client.getGrandmasterLeague("RANKED_SOLO_5x5");
+
+        assertEquals(0, result.size());
+        platformServer.verify();
+    }
+
+    @Test
+    void getMasterLeague_usesMasterEndpoint() {
+        platformServer.expect(requestTo(PLATFORM_URL + "/lol/league/v4/masterleagues/by-queue/RANKED_SOLO_5x5"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {"tier":"MASTER","entries":[]}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<RiotLeagueSeedEntryResponse> result = client.getMasterLeague("RANKED_SOLO_5x5");
+
+        assertEquals(0, result.size());
+        platformServer.verify();
+    }
+
+    @Test
+    void getLeagueEntries_usesPlatformRoutingAndPageParam() {
+        platformServer.expect(requestTo(
+                        PLATFORM_URL + "/lol/league/v4/entries/RANKED_SOLO_5x5/DIAMOND/I?page=2"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        [{"puuid":"puuid-1","tier":"DIAMOND","rank":"I","leaguePoints":55,"wins":40,"losses":20}]
+                        """, MediaType.APPLICATION_JSON));
+
+        List<RiotLeagueSeedEntryResponse> result = client.getLeagueEntries("RANKED_SOLO_5x5", "DIAMOND", "I", 2);
+
+        assertEquals(1, result.size());
+        assertEquals("puuid-1", result.get(0).puuid());
+        assertEquals("DIAMOND", result.get(0).tier());
         platformServer.verify();
     }
 

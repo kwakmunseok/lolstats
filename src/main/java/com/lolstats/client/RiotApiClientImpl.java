@@ -2,6 +2,9 @@ package com.lolstats.client;
 
 import com.lolstats.client.dto.RiotAccountResponse;
 import com.lolstats.client.dto.RiotLeagueEntryResponse;
+import com.lolstats.client.dto.RiotLeagueItemResponse;
+import com.lolstats.client.dto.RiotLeagueListResponse;
+import com.lolstats.client.dto.RiotLeagueSeedEntryResponse;
 import com.lolstats.client.dto.RiotMatchResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +48,14 @@ public class RiotApiClientImpl implements RiotApiClient {
     }
 
     @Override
+    public RiotAccountResponse getAccountByPuuid(String puuid) {
+        return withRetry(() -> regionalClient.get()
+                .uri("/riot/account/v1/accounts/by-puuid/{puuid}", puuid)
+                .retrieve()
+                .body(RiotAccountResponse.class));
+    }
+
+    @Override
     public RiotSummonerResponse getSummonerByPuuid(String puuid) {
         return withRetry(() -> platformClient.get()
                 .uri("/lol/summoner/v4/summoners/by-puuid/{puuid}", puuid)
@@ -58,6 +69,41 @@ public class RiotApiClientImpl implements RiotApiClient {
                 .uri("/lol/league/v4/entries/by-puuid/{puuid}", puuid)
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<RiotLeagueEntryResponse>>() {
+                }));
+    }
+
+    @Override
+    public List<RiotLeagueSeedEntryResponse> getChallengerLeague(String queue) {
+        return getApexLeague("/lol/league/v4/challengerleagues/by-queue/{queue}", queue);
+    }
+
+    @Override
+    public List<RiotLeagueSeedEntryResponse> getGrandmasterLeague(String queue) {
+        return getApexLeague("/lol/league/v4/grandmasterleagues/by-queue/{queue}", queue);
+    }
+
+    @Override
+    public List<RiotLeagueSeedEntryResponse> getMasterLeague(String queue) {
+        return getApexLeague("/lol/league/v4/masterleagues/by-queue/{queue}", queue);
+    }
+
+    private List<RiotLeagueSeedEntryResponse> getApexLeague(String uriTemplate, String queue) {
+        RiotLeagueListResponse response = withRetry(() -> platformClient.get()
+                .uri(uriTemplate, queue)
+                .retrieve()
+                .body(RiotLeagueListResponse.class));
+        return response.entries().stream()
+                .map(item -> new RiotLeagueSeedEntryResponse(
+                        item.puuid(), response.tier(), item.rank(), item.leaguePoints(), item.wins(), item.losses()))
+                .toList();
+    }
+
+    @Override
+    public List<RiotLeagueSeedEntryResponse> getLeagueEntries(String queue, String tier, String division, int page) {
+        return withRetry(() -> platformClient.get()
+                .uri("/lol/league/v4/entries/{queue}/{tier}/{division}?page={page}", queue, tier, division, page)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<RiotLeagueSeedEntryResponse>>() {
                 }));
     }
 

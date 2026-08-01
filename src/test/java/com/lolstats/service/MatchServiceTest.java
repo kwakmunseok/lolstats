@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
@@ -91,10 +92,12 @@ class MatchServiceTest {
             when(riotApiClient.getMatchById(id)).thenReturn(sampleMatch(id));
         }
 
-        service.collectMatches(ids, () -> {
+        MatchService.CollectionResult result = service.collectMatches(ids, () -> {
         });
 
         verify(riotApiClient, times(7)).getMatchById(any());
+        assertEquals(7, result.savedCount());
+        assertTrue(result.complete());
     }
 
     @Test
@@ -139,12 +142,14 @@ class MatchServiceTest {
                 .thenThrow(HttpClientErrorException.create(
                         HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY, new byte[0], null));
 
-        service.collectMatches(List.of("KR_1", "KR_2", "KR_3"), () -> {
+        MatchService.CollectionResult result = service.collectMatches(List.of("KR_1", "KR_2", "KR_3"), () -> {
         });
 
         verify(riotApiClient).getMatchById("KR_1");
         verify(riotApiClient).getMatchById("KR_2");
         verify(riotApiClient, never()).getMatchById("KR_3");
         verify(matchRepository, times(1)).save(any(Match.class));
+        assertEquals(1, result.savedCount());
+        assertFalse(result.complete());
     }
 }
