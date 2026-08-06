@@ -2,6 +2,9 @@ package com.lolstats.controller;
 
 import com.lolstats.domain.Summoner;
 import com.lolstats.dto.SummonerResponse;
+import com.lolstats.dto.TierHistoryResponse;
+import com.lolstats.repository.SummonerRepository;
+import com.lolstats.repository.TierHistoryRepository;
 import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
 import com.lolstats.service.SummonerService;
@@ -26,12 +29,20 @@ public class SummonerController {
     private final SummonerService summonerService;
     private final MatchService matchService;
     private final MatchCollectionQueue matchCollectionQueue;
+    private final SummonerRepository summonerRepository;
+    private final TierHistoryRepository tierHistoryRepository;
 
     public SummonerController(
-            SummonerService summonerService, MatchService matchService, MatchCollectionQueue matchCollectionQueue) {
+            SummonerService summonerService,
+            MatchService matchService,
+            MatchCollectionQueue matchCollectionQueue,
+            SummonerRepository summonerRepository,
+            TierHistoryRepository tierHistoryRepository) {
         this.summonerService = summonerService;
         this.matchService = matchService;
         this.matchCollectionQueue = matchCollectionQueue;
+        this.summonerRepository = summonerRepository;
+        this.tierHistoryRepository = tierHistoryRepository;
     }
 
     // "riot-id" prefix keeps this 2-segment route from colliding with /{summonerId}/matches
@@ -69,6 +80,18 @@ public class SummonerController {
         if (!plan.missingMatchIds().isEmpty()) {
             matchCollectionQueue.enqueue(puuid, plan.totalCount());
         }
+    }
+
+    // 시계열 티어 이력 (PROJECT_PLAN.md §6 TIER_HISTORY) - 오래된 순, 차트 y축용 score 포함
+    // (TierHistoryResponse.from - TierScore).
+    @GetMapping("/{summonerId}/tier-history")
+    public List<TierHistoryResponse> getTierHistory(@PathVariable Long summonerId) {
+        if (!summonerRepository.existsById(summonerId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "summoner not found: " + summonerId);
+        }
+        return tierHistoryRepository.findBySummonerIdOrderByRecordedAtAsc(summonerId).stream()
+                .map(TierHistoryResponse::from)
+                .toList();
     }
 
     @GetMapping("/autocomplete")

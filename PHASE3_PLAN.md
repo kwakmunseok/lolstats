@@ -72,14 +72,14 @@ Task 1과 Task 2는 서로 독립(하나는 읽기 전용 집계, 하나는 검�
 
 **완료 기준 — 확인됨**: 실제 소환사(id 1, "Grizzly#KR3")로 라이브 검색 → tier_history 1행 생성(CHALLENGER I 2812LP). 곧바로 [전적 갱신] 호출 → 여전히 1행(같은 값이라 dedup 확인). 값이 바뀌는 케이스는 실제 티어 변동을 기다릴 수 없어 유닛 테스트로 검증. 전체 스위트 84개 통과.
 
-### 3. 티어 이력 조회 API — 2~3h
+### 3. 티어 이력 조회 API — 2~3h ✅ 완료
 
-- [ ] `GET /api/summoners/{summonerId}/tier-history` — Task 2 리포지토리 조회, 시계열 DTO 리스트 응답
-- [ ] **차트 y축용 점수 환산(§5 확정 — 차트로 하기로 함)**: tier/rank는 범주형이라 그대로 그래프 y축에 못 씀. `TierScore`(신규 유틸) — `tierIndex(IRON=0..CHALLENGER=9) * 400 + (division ? (4 - divisionIndex) * 100 : 0) + leaguePoints`로 정렬 가능한 단일 점수 환산(Master+는 division 없이 LP만). `ponytail:` 티어 간 간격을 균등(400점)하다고 가정한 단순 스케일 — 실제 티어별 인구 분포는 다르지만 "추이가 오르는지 내리는지" 보여주는 용도로는 충분, 더 정교한 MMR 환산이 필요해지면 그때 손봄
-- [ ] `TierHistoryResponse`에 원본 tier/rank/leaguePoints(툴팁/라벨용) + `score`(차트 y축용) 둘 다 포함
-- [ ] 테스트: 정렬 순서(오래된 순), 빈 이력(크롤러로만 채워진 소환사 — TIER_HISTORY 없음) 처리, `TierScore` 경계값(같은 티어 내 division/LP 비교, 디비전 없는 Master+ 비교)
+- [x] `GET /api/summoners/{summonerId}/tier-history` — `SummonerController`에 추가, Task 2 리포지토리 조회, 시계열 DTO 리스트 응답. 존재하지 않는 summonerId는 404
+- [x] **차트 y축용 점수 환산(§5 확정 — 차트로 하기로 함)**: `TierScore`(신규 유틸) — `tierIndex(IRON=0..CHALLENGER=9) * 400 + (division ? (4 - divisionIndex) * 100 : 0) + leaguePoints`. **주의(라이브 확인으로 발견)**: league-v4는 Master+에도 `rank="I"`를 내려줌(null 아님) — apex 판정은 rank가 아니라 **tier 이름**으로 분기(`APEX_TIERS.contains(tier)`), 안 그러면 모든 apex 플레이어가 +300 오차를 받음
+- [x] `TierHistoryResponse`에 원본 tier/rank/leaguePoints(툴팁/라벨용) + `score`(차트 y축용) 둘 다 포함
+- [x] 테스트: `TierScoreTest` 3개(디비전 우선순위, 티어 우선순위, apex rank="I" 오분류 방지)
 
-**완료 기준**: Task 2에서 쌓인 스냅샷이 시간순으로 그대로 나오고, score가 승급/강등 방향과 일치(승급 시 증가, 강등 시 감소).
+**완료 기준 — 확인됨**: 실제 소환사(id 1)로 라이브 호출 → `[{"tier":"CHALLENGER","rank":"I","leaguePoints":2812,"score":6412}]`(9×400+2812, apex라 division 보너스 없음 — 수기 계산과 일치). 존재하지 않는 id는 404. 전체 스위트 87개 통과.
 
 ### 4. 화면 — 챔피언 통계 탭 + 티어 이력 탭 — 6~8h
 
