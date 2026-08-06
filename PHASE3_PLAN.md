@@ -62,15 +62,15 @@ Task 1과 Task 2는 서로 독립(하나는 읽기 전용 집계, 하나는 검�
 
 **완료 기준 — 확인됨**: 실제 소환사(id 2536, 크롤러 데이터)로 라이브 호출 → `games=405`, `perChampion` games 합(405)이 `games`와 일치, `overallWinRate≈0.506`. `/matches` 응답의 `queueType`이 "솔로랭크"로 표시됨(라이브 확인, DB-only라 크롤러/개발서버 동시가동 문제 없음). 유닛 테스트 6개(QueueNames 2, ChampionStatsService 4) + 전체 스위트 80개 통과.
 
-### 2. 티어 이력 스냅샷 적재 — 4~5h
+### 2. 티어 이력 스냅샷 적재 — 4~5h ✅ 완료
 
-- [ ] `TierHistory` 엔티티 신규(PROJECT_PLAN.md §6 스키마: id, summoner_id FK, tier, rank, league_points, recorded_at) — `ddl-auto: update`로 자동 테이블 생성
-- [ ] `TierHistoryRepository` — `findBySummonerIdOrderByRecordedAtAsc`
-- [ ] `SummonerService.fetchAndUpsert()`(현재 119~145행)에 훅 추가 — summoner 저장 직후 해당 summoner의 최신 TIER_HISTORY 행과 tier/rank/leaguePoints 비교, **다르면 INSERT, 같거나 tier가 null(언랭)이면 생략**. `findOrFetch`(신규 fetch 시)와 `refresh`(갱신 버튼) 둘 다 이 private 메서드를 거치므로 한 곳만 고치면 양쪽 다 커버됨
-- [ ] 크롤러(`CrawlerSummonerService`)는 훅 대상에서 제외 — SummonerService를 거치지 않는 별도 클래스라 자동으로 빠짐, 의도적으로 안 건드림(§5 미결 사항 기본값)
-- [ ] 테스트: 첫 스냅샷 INSERT, 동일 tier/rank/lp로 재검색 시 INSERT 생략(`verify(repo, never())`), 값 변경 시 INSERT, 언랭 전환 시 INSERT 생략
+- [x] `TierHistory` 엔티티 신규(PROJECT_PLAN.md §6 스키마: id, summoner_id FK, tier, rank, league_points, recorded_at) — `ddl-auto: update`로 자동 테이블 생성
+- [x] `TierHistoryRepository` — `findTopBySummonerIdOrderByRecordedAtDesc`(dedup용) + `findBySummonerIdOrderByRecordedAtAsc`(Task 3용, 미리 같이 정의)
+- [x] `SummonerService.fetchAndUpsert()`에 훅 추가 — summoner 저장 직후 해당 summoner의 최신 TIER_HISTORY 행과 tier/rank/leaguePoints 비교, **다르면 INSERT, 같거나 tier가 null(언랭)이면 생략**. `findOrFetch`(신규 fetch 시)와 `refresh`(갱신 버튼) 둘 다 이 private 메서드를 거치므로 한 곳만 고치면 양쪽 다 커버됨
+- [x] 크롤러(`CrawlerSummonerService`)는 훅 대상에서 제외 — SummonerService를 거치지 않는 별도 클래스라 자동으로 빠짐, 의도적으로 안 건드림(§5 미결 사항 기본값)
+- [x] 테스트: 첫 스냅샷 INSERT, 동일 tier/rank/lp로 재검색 시 INSERT 생략(`verify(repo, never())`), 값 변경 시 INSERT, 언랭 전환 시 INSERT 생략(4개 신규, `SummonerServiceTest.java`)
 
-**완료 기준**: 같은 소환사를 연속 검색해도 TIER_HISTORY 행이 늘지 않음, [전적 갱신] 후 LP 변화가 있으면 새 행이 쌓이는 것 확인(라이브 또는 유닛으로).
+**완료 기준 — 확인됨**: 실제 소환사(id 1, "Grizzly#KR3")로 라이브 검색 → tier_history 1행 생성(CHALLENGER I 2812LP). 곧바로 [전적 갱신] 호출 → 여전히 1행(같은 값이라 dedup 확인). 값이 바뀌는 케이스는 실제 티어 변동을 기다릴 수 없어 유닛 테스트로 검증. 전체 스위트 84개 통과.
 
 ### 3. 티어 이력 조회 API — 2~3h
 

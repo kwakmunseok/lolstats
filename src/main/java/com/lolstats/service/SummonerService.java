@@ -6,8 +6,10 @@ import com.lolstats.client.dto.RiotLeagueEntryResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 import com.lolstats.domain.SearchCount;
 import com.lolstats.domain.Summoner;
+import com.lolstats.domain.TierHistory;
 import com.lolstats.repository.SearchCountRepository;
 import com.lolstats.repository.SummonerRepository;
+import com.lolstats.repository.TierHistoryRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -50,6 +52,7 @@ public class SummonerService {
 
     private final SummonerRepository summonerRepository;
     private final SearchCountRepository searchCountRepository;
+    private final TierHistoryRepository tierHistoryRepository;
     private final RiotApiClient riotApiClient;
     private final StringRedisTemplate redisTemplate;
     private final long ttlMinutes;
@@ -57,11 +60,13 @@ public class SummonerService {
     public SummonerService(
             SummonerRepository summonerRepository,
             SearchCountRepository searchCountRepository,
+            TierHistoryRepository tierHistoryRepository,
             RiotApiClient riotApiClient,
             StringRedisTemplate redisTemplate,
             @Value("${app.cache.summoner-ttl-minutes}") long ttlMinutes) {
         this.summonerRepository = summonerRepository;
         this.searchCountRepository = searchCountRepository;
+        this.tierHistoryRepository = tierHistoryRepository;
         this.riotApiClient = riotApiClient;
         this.redisTemplate = redisTemplate;
         this.ttlMinutes = ttlMinutes;
@@ -141,7 +146,34 @@ public class SummonerService {
         summoner.setLosses(soloQueue != null ? soloQueue.losses() : null);
         summoner.setUpdatedAt(Instant.now());
 
-        return summonerRepository.save(summoner);
+        Summoner saved = summonerRepository.save(summoner);
+        recordTierHistory(saved);
+        return saved;
+    }
+
+    // Snapshot only on an actual tier/rank/LP change (PROJECT_PLAN.md §6 TIER_HISTORY) - both
+    // findOrFetch (new fetch) and refresh() go through fetchAndUpsert(), so one hook covers
+    // both. Unranked (season reset, tier null) is skipped entirely - a time series has nothing
+    // meaningful to record there.
+    private void recordTierHistory(Summoner summoner) {
+        if (summoner.getTier() == null) {
+            return;
+        }
+        boolean unchanged = tierHistoryRepository.findTopBySummonerIdOrderByRecordedAtDesc(summoner.getId())
+                .filter(latest -> Objects.equals(latest.getTier(), summoner.getTier())
+                        && Objects.equals(latest.getRank(), summoner.getRank())
+                        && Objects.equals(latest.getLeaguePoints(), summoner.getLeaguePoints()))
+                .isPresent();
+        if (unchanged) {
+            return;
+        }
+        tierHistoryRepository.save(TierHistory.builder()
+                .summoner(summoner)
+                .tier(summoner.getTier())
+                .rank(summoner.getRank())
+                .leaguePoints(summoner.getLeaguePoints())
+                .recordedAt(Instant.now())
+                .build());
     }
 
     private void recordSearch(Summoner summoner) {

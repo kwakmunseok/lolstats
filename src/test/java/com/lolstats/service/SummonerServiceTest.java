@@ -5,11 +5,14 @@ import com.lolstats.client.dto.RiotAccountResponse;
 import com.lolstats.client.dto.RiotLeagueEntryResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 import com.lolstats.domain.Summoner;
+import com.lolstats.domain.TierHistory;
 import com.lolstats.repository.SearchCountRepository;
 import com.lolstats.repository.SummonerRepository;
+import com.lolstats.repository.TierHistoryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.QueryTimeoutException;
@@ -34,6 +37,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -45,6 +49,8 @@ class SummonerServiceTest {
     private SummonerRepository summonerRepository;
     @Mock
     private SearchCountRepository searchCountRepository;
+    @Mock
+    private TierHistoryRepository tierHistoryRepository;
     @Mock
     private RiotApiClient riotApiClient;
     @Mock
@@ -58,7 +64,8 @@ class SummonerServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SummonerService(summonerRepository, searchCountRepository, riotApiClient, redisTemplate, 10);
+        service = new SummonerService(
+                summonerRepository, searchCountRepository, tierHistoryRepository, riotApiClient, redisTemplate, 10);
 
         // recordSearch() (called by every findOrFetch()/refresh() test) always tries the
         // ZINCRBY ranking update - stub it so those tests don't need to know about Redis.
@@ -73,6 +80,13 @@ class SummonerServiceTest {
             }
             return saved;
         });
+
+        // Every fetchAndUpsert() checks for a prior snapshot to dedup against - most tests
+        // don't care about tier history, so default to "no prior snapshot" (Optional.empty()
+        // is Mockito's own default for unstubbed Optional-returning methods, but spelled out
+        // here to match the zSetOperations default above and avoid relying on that implicitly).
+        lenient().when(tierHistoryRepository.findTopBySummonerIdOrderByRecordedAtDesc(any()))
+                .thenReturn(Optional.empty());
     }
 
     @Test
@@ -322,5 +336,90 @@ class SummonerServiceTest {
 
         assertEquals(1, result.size());
         assertEquals("p1", result.get(0).getPuuid());
+    }
+
+    // --- TIER_HISTORY snapshotting (Phase 3 Task 2) ---
+
+    @Test
+    void fetchAndUpsert_firstSnapshot_insertsTierHistory() {
+        when(summonerRepository.findByGameNameAndTagLine("Hide on bush", "KR1")).thenReturn(List.of());
+        when(riotApiClient.getAccountByRiotId("Hide on bush", "KR1"))
+                .thenReturn(new RiotAccountResponse("puuid-1", "Hide on bush", "KR1"));
+        when(summonerRepository.findByPuuid("puuid-1")).thenReturn(Optional.empty());
+        when(riotApiClient.getSummonerByPuuid("puuid-1")).thenReturn(new RiotSummonerResponse("puuid-1", 1, 30));
+        when(riotApiClient.getLeagueEntriesByPuuid("puuid-1"))
+                .thenReturn(List.of(new RiotLeagueEntryResponse("RANKED_SOLO_5x5", "GOLD", "II", 45, 10, 8)));
+        when(searchCountRepository.findById(99L)).thenReturn(Optional.empty());
+        // tierHistoryRepository default stub (setUp) - no prior snapshot for id 99.
+
+        service.findOrFetch("Hide on bush", "KR1");
+
+        ArgumentCaptor<TierHistory> captor = ArgumentCaptor.forClass(TierHistory.class);
+        verify(tierHistoryRepository).save(captor.capture());
+        assertEquals("GOLD", captor.getValue().getTier());
+        assertEquals("II", captor.getValue().getRank());
+        assertEquals(45, captor.getValue().getLeaguePoints());
+    }
+
+    @Test
+    void fetchAndUpsert_sameTierRankLp_skipsTierHistoryInsert() {
+        Summoner stale = Summoner.builder()
+                .id(1L).puuid("puuid-1").gameName("Hide on bush").tagLine("KR1")
+                .updatedAt(Instant.now().minus(20, ChronoUnit.MINUTES))
+                .build();
+        when(summonerRepository.findByGameNameAndTagLine("Hide on bush", "KR1")).thenReturn(List.of(stale));
+        when(riotApiClient.getAccountByRiotId("Hide on bush", "KR1"))
+                .thenReturn(new RiotAccountResponse("puuid-1", "Hide on bush", "KR1"));
+        when(summonerRepository.findByPuuid("puuid-1")).thenReturn(Optional.of(stale));
+        when(riotApiClient.getSummonerByPuuid("puuid-1")).thenReturn(new RiotSummonerResponse("puuid-1", 1, 30));
+        when(riotApiClient.getLeagueEntriesByPuuid("puuid-1"))
+                .thenReturn(List.of(new RiotLeagueEntryResponse("RANKED_SOLO_5x5", "GOLD", "II", 45, 10, 8)));
+        when(searchCountRepository.findById(1L)).thenReturn(Optional.empty());
+        when(tierHistoryRepository.findTopBySummonerIdOrderByRecordedAtDesc(1L)).thenReturn(Optional.of(
+                TierHistory.builder().tier("GOLD").rank("II").leaguePoints(45).recordedAt(Instant.now()).build()));
+
+        service.findOrFetch("Hide on bush", "KR1");
+
+        verify(tierHistoryRepository, never()).save(any());
+    }
+
+    @Test
+    void fetchAndUpsert_changedLp_insertsNewTierHistorySnapshot() {
+        Summoner stale = Summoner.builder()
+                .id(1L).puuid("puuid-1").gameName("Hide on bush").tagLine("KR1")
+                .updatedAt(Instant.now().minus(20, ChronoUnit.MINUTES))
+                .build();
+        when(summonerRepository.findByGameNameAndTagLine("Hide on bush", "KR1")).thenReturn(List.of(stale));
+        when(riotApiClient.getAccountByRiotId("Hide on bush", "KR1"))
+                .thenReturn(new RiotAccountResponse("puuid-1", "Hide on bush", "KR1"));
+        when(summonerRepository.findByPuuid("puuid-1")).thenReturn(Optional.of(stale));
+        when(riotApiClient.getSummonerByPuuid("puuid-1")).thenReturn(new RiotSummonerResponse("puuid-1", 1, 30));
+        when(riotApiClient.getLeagueEntriesByPuuid("puuid-1"))
+                .thenReturn(List.of(new RiotLeagueEntryResponse("RANKED_SOLO_5x5", "GOLD", "II", 60, 11, 8)));
+        when(searchCountRepository.findById(1L)).thenReturn(Optional.empty());
+        when(tierHistoryRepository.findTopBySummonerIdOrderByRecordedAtDesc(1L)).thenReturn(Optional.of(
+                TierHistory.builder().tier("GOLD").rank("II").leaguePoints(45).recordedAt(Instant.now()).build()));
+
+        service.findOrFetch("Hide on bush", "KR1");
+
+        ArgumentCaptor<TierHistory> captor = ArgumentCaptor.forClass(TierHistory.class);
+        verify(tierHistoryRepository).save(captor.capture());
+        assertEquals(60, captor.getValue().getLeaguePoints());
+    }
+
+    @Test
+    void fetchAndUpsert_unranked_skipsTierHistoryInsertRegardless() {
+        when(summonerRepository.findByGameNameAndTagLine("NewPlayer", "KR1")).thenReturn(List.of());
+        when(riotApiClient.getAccountByRiotId("NewPlayer", "KR1"))
+                .thenReturn(new RiotAccountResponse("puuid-2", "NewPlayer", "KR1"));
+        when(summonerRepository.findByPuuid("puuid-2")).thenReturn(Optional.empty());
+        when(riotApiClient.getSummonerByPuuid("puuid-2")).thenReturn(new RiotSummonerResponse("puuid-2", 1, 30));
+        when(riotApiClient.getLeagueEntriesByPuuid("puuid-2")).thenReturn(List.of());
+        when(searchCountRepository.findById(99L)).thenReturn(Optional.empty());
+
+        service.findOrFetch("NewPlayer", "KR1");
+
+        verify(tierHistoryRepository, never()).findTopBySummonerIdOrderByRecordedAtDesc(any());
+        verify(tierHistoryRepository, never()).save(any());
     }
 }
