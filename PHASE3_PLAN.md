@@ -1,0 +1,138 @@
+# Phase 3 상세 작업 계획서 (데이터/통계)
+
+> [PROJECT_PLAN.md](./PROJECT_PLAN.md) §4 Phase 3를 실행 단위로 쪼갠 작업 분해서(WBS). [PHASE2_PLAN.md](./PHASE2_PLAN.md)와 동일한 형식.
+> 예산: **22~26h** (PROJECT_PLAN.md §10). Phase 1/2와 달리 신규 인프라·의존성 없음 — 기존 MySQL/JPA 구조 위에 집계 로직 + 테이블 1개(TIER_HISTORY) 추가가 전부.
+> **상태: 미착수 — 이 문서가 최초 계획서**(PHASE2_PLAN.md §0.1에서 예고됨). 아래 §5 "미결 사항"은 Phase 2 §5 "결정 사항"과 달리 아직 grilling을 거치지 않은 열린 질문 — 착수 전 확정 또는 기본값 그대로 진행할지 확인 필요.
+
+## 0. 착수 전 확인 사항
+
+- [ ] 신규 의존성/인프라 없음 확인 — `TIER_HISTORY`는 `ddl-auto: update`(기존 방식, Flyway 등 마이그레이션 도구 미사용)로 다음 부팅 시 자동 생성
+- [ ] §5 미결 사항 먼저 훑고 시작(특히 champion-stats 응답 구조) — 기본값대로 진행해도 무방하지만 안 보고 시작하면 Task 1 다 짜고 나서 뒤집을 수 있음
+
+## 0.1 진행 현황 & 재개 방법
+
+- Phase 1·2 완료. 크롤러(Task 1~4) 별도 커밋 완료, 데이터 수집 진행 중(2026-08-06 기준 Master 92%, Challenger/Grandmaster 100%, 백그라운드 계속 가동 — 크롤러와 개발 서버 동시 가동 금지, §4 크롤러 조건①).
+- 다음 세션 시작 시: §5 미결 사항 확정(또는 기본값 수용) → Task 1부터 순서대로.
+
+## 1. 이 문서 범위에 포함되지 않는 것
+
+- 배포(EC2/도메인/HTTPS/CI-CD) — PROJECT_PLAN.md §9
+- Phase 4 상대 챔피언 승률(조건부, go/no-go 이후), Phase 5 JWT/즐겨찾기
+- 크롤러 경로에 TIER_HISTORY 적재 연결 — §5 미결 사항, 기본값은 "안 함"
+
+---
+
+## 2. 작업 순서 (의존성 기준)
+
+```
+Task 1: 통계 집계 서비스           Task 2: 티어 이력 스냅샷 적재
+(챔피언/승률/폼 — 큐 필터는         (TIER_HISTORY 엔티티 +
+ MatchService.RIFT_QUEUE_TYPES      SummonerService 훅)
+ 그대로 재사용, 신규 매핑 불요)             │
+      │                                   ▼
+      │                          Task 3: 티어 이력 조회 API
+      │                                   │
+      └───────────────┬───────────────────┘
+                       ▼
+             Task 4: 화면 (챔피언 통계 탭 + 티어 이력 탭)
+                       │
+                       ▼
+             Task 5: 테스트 정리 / 누락분 보강
+```
+
+Task 1과 Task 2는 서로 독립(하나는 읽기 전용 집계, 하나는 검색 시점 스냅샷 적재)이라 순서 안 가리고 아무거나 먼저 해도 됨. Task 3은 Task 2가 만든 엔티티가 있어야 하고, Task 4(화면)는 Task 1·Task 3 API가 둘 다 있어야 탭을 채울 수 있음.
+
+**중요 발견 (착수 전 코드 확인 결과)**: `MatchService.java:26`에 이미 `RIFT_QUEUE_TYPES = List.of("400","420","430","440")`(Normal Draft/Blind + Ranked Solo/Flex)가 정의돼 있고, 그 위 주석이 정확히 "Task 4 decision: raw queueId, no name mapping until Phase 3"라고 명시. 즉 "랭크/드래프트 큐만 집계" **필터**에는 신규 코드가 필요 없음 — 이 상수를 그대로 재사용하면 됨.
+
+큐 **표시명** 매핑(420 → "솔로랭크" 등)은 필터와 별개 문제지만, §5 결정에 따라 이번 Phase 범위로 확정 — Task 1에서 같이 처리(아래 참고).
+
+---
+
+## 3. 상세 작업 항목 (WBS)
+
+### 1. 통계 집계 서비스 (승률/최근 폼/챔피언별) + 큐 표시명 매핑 — 5~6h
+
+- [ ] `MatchParticipantRepository`에 신규 쿼리 추가: `List<MatchParticipant> findByPuuidAndMatch_QueueTypeInOrderByMatch_GameCreationDesc(String puuid, Collection<String> queueTypes)` — 큐 필터는 `MatchService.RIFT_QUEUE_TYPES` 그대로 전달
+- [ ] `ChampionStatsService`(신규): 위 리스트를 스트림으로 3가지 집계 — ① 전체 승/패 → winRate ② `game_creation` 내림차순 최근 폼 배열(승/패) ③ `champion_id` GROUP BY → 챔피언별 games/wins/winRate/평균 KDA. **소환사당 매치 최대 20건 캡(`MatchService.MATCH_ID_FETCH_COUNT`, 크롤러도 동일 캡)이 이미 걸려 있어 "최근 N게임" 상한을 따로 구현할 필요 없음** — DB에 있는 전부가 곧 "최근 최대 20게임"
+- [ ] DTO `ChampionStatsResponse`(games, overallWinRate, recentForm: List\<Boolean\>, perChampion: List\<ChampionStatRow{championId, games, wins, winRate, avgKda}\>) — §5 미결 사항 기본값(한 응답에 다 묶음) 적용
+- [ ] `GET /api/summoners/{summonerId}/champion-stats` — `SummonerController`에 추가(기존 소환사 관련 조회 엔드포인트들과 같은 컨트롤러)
+- [ ] 테스트: 랭크+ARAM 섞인 매치에서 ARAM 제외 확인, 챔피언 그룹핑/승률 계산 검증, 매치 0건(신규 소환사)일 때 빈 응답 처리
+- [ ] **큐 표시명 매핑(§5 확정 — 이번에 같이 고침)**: `QueueNames`(신규, `RIFT_QUEUE_TYPES` 4개만 커버 — 이 화면들에 실제로 노출되는 큐가 이것뿐이라 Data Dragon 전체 큐 목록까지 파싱할 필요 없음) `420→"솔로랭크"`, `440→"자유랭크"`, `400→"일반(드래프트)"`, `430→"일반(블라인드)"`. `MatchSummaryResponse.from()`(`MatchSummaryResponse.java:19`)과 `MatchDetailResponse.from()`(`MatchDetailResponse.java:19`)에서 `match.getQueueType()` 대신 `QueueNames.displayName(match.getQueueType())` 사용 — DB엔 raw id 그대로 저장(원칙①, 표시 레이어에서만 변환). 템플릿(`profile.html`/`match-detail.html`)은 이미 그 필드를 그대로 출력하고 있어 **수정 불필요**
+- [ ] 테스트: `QueueNames.displayName("420")` 등 4개 매핑 확인, 알 수 없는 id는 원본 그대로 반환(방어적 기본값)
+
+**완료 기준**: 실제 검색된 소환사로 라이브 호출 → 챔피언별 games 합이 "협곡+랭크/드래프트" 게임 수와 일치, ARAM/Arena 매치가 있으면 집계에서 빠지는 것 확인. 매치 목록/상세 화면에 "420" 대신 "솔로랭크"가 보임.
+
+### 2. 티어 이력 스냅샷 적재 — 4~5h
+
+- [ ] `TierHistory` 엔티티 신규(PROJECT_PLAN.md §6 스키마: id, summoner_id FK, tier, rank, league_points, recorded_at) — `ddl-auto: update`로 자동 테이블 생성
+- [ ] `TierHistoryRepository` — `findBySummonerIdOrderByRecordedAtAsc`
+- [ ] `SummonerService.fetchAndUpsert()`(현재 119~145행)에 훅 추가 — summoner 저장 직후 해당 summoner의 최신 TIER_HISTORY 행과 tier/rank/leaguePoints 비교, **다르면 INSERT, 같거나 tier가 null(언랭)이면 생략**. `findOrFetch`(신규 fetch 시)와 `refresh`(갱신 버튼) 둘 다 이 private 메서드를 거치므로 한 곳만 고치면 양쪽 다 커버됨
+- [ ] 크롤러(`CrawlerSummonerService`)는 훅 대상에서 제외 — SummonerService를 거치지 않는 별도 클래스라 자동으로 빠짐, 의도적으로 안 건드림(§5 미결 사항 기본값)
+- [ ] 테스트: 첫 스냅샷 INSERT, 동일 tier/rank/lp로 재검색 시 INSERT 생략(`verify(repo, never())`), 값 변경 시 INSERT, 언랭 전환 시 INSERT 생략
+
+**완료 기준**: 같은 소환사를 연속 검색해도 TIER_HISTORY 행이 늘지 않음, [전적 갱신] 후 LP 변화가 있으면 새 행이 쌓이는 것 확인(라이브 또는 유닛으로).
+
+### 3. 티어 이력 조회 API — 2~3h
+
+- [ ] `GET /api/summoners/{summonerId}/tier-history` — Task 2 리포지토리 조회, 시계열 DTO 리스트 응답
+- [ ] **차트 y축용 점수 환산(§5 확정 — 차트로 하기로 함)**: tier/rank는 범주형이라 그대로 그래프 y축에 못 씀. `TierScore`(신규 유틸) — `tierIndex(IRON=0..CHALLENGER=9) * 400 + (division ? (4 - divisionIndex) * 100 : 0) + leaguePoints`로 정렬 가능한 단일 점수 환산(Master+는 division 없이 LP만). `ponytail:` 티어 간 간격을 균등(400점)하다고 가정한 단순 스케일 — 실제 티어별 인구 분포는 다르지만 "추이가 오르는지 내리는지" 보여주는 용도로는 충분, 더 정교한 MMR 환산이 필요해지면 그때 손봄
+- [ ] `TierHistoryResponse`에 원본 tier/rank/leaguePoints(툴팁/라벨용) + `score`(차트 y축용) 둘 다 포함
+- [ ] 테스트: 정렬 순서(오래된 순), 빈 이력(크롤러로만 채워진 소환사 — TIER_HISTORY 없음) 처리, `TierScore` 경계값(같은 티어 내 division/LP 비교, 디비전 없는 Master+ 비교)
+
+**완료 기준**: Task 2에서 쌓인 스냅샷이 시간순으로 그대로 나오고, score가 승급/강등 방향과 일치(승급 시 증가, 강등 시 감소).
+
+### 4. 화면 — 챔피언 통계 탭 + 티어 이력 탭 — 6~8h
+
+- [ ] `profile.html`에 Bootstrap `nav-tabs` 신규 도입(현재 프로필 화면엔 탭 구조 자체가 없음 — 매치 목록만 단일 섹션) — 매치 목록 / 챔피언 통계 / 티어 이력 3탭
+- [ ] 챔피언 통계 탭: 전체 승률, 최근 폼(W/L 아이콘 나열), 챔피언별 표(ddragon 아이콘 재사용 — Phase 1에 이미 연동됨) — **"N게임 기준" 표기 필수**(PROJECT_PLAN.md §4 Phase 3 원문)
+- [ ] **티어 이력 탭 — 라인 차트(§5 확정)**: `Chart.js` CDN `<script>` 추가(`layout.html` — Bootstrap도 같은 jsdelivr CDN 패턴, 신규 빌드 도구 불필요). x축 `recordedAt`, y축 Task 3의 `score`, 포인트 툴팁에 원본 tier/rank/LP 표시(예: "GOLD II 45LP"). 데이터 없으면(크롤러로만 채워진 소환사) 빈 상태 문구
+- [ ] `PageController` 수정 — 프로필 페이지 로드 시 Task 1/3 서비스 호출해 모델에 추가(SSR 그대로, 탭 전환도 서버 렌더링 한 페이지 안에서 처리 — Chart.js 초기화만 인라인 `<script>`로, 신규 프론트 프레임워크 도입 없음)
+
+**완료 기준**: 실제 소환사 프로필에서 탭 전환 확인, 티어 이력 탭에서 실제 라인 차트가 렌더링되는 것 확인(브라우저로 라이브 확인 필요 — Chart.js 렌더링은 코드 리뷰만으론 검증 안 됨), 매치 0건/티어 이력 0건 케이스에서 빈 상태 문구 확인.
+
+### 5. 테스트 정리 — 1~2h
+
+- [ ] Task 1~4에서 누락된 엣지 케이스 보강(신규 소환사, 언랭, 챔피언 1종만 플레이 등)
+- [ ] `./gradlew test` 전체 통과 확인
+
+**Phase 3 완료.**
+
+---
+
+## 4. Phase 3 완료 기준 (Definition of Done)
+
+PROJECT_PLAN.md §4 Phase 3 체크리스트 전체 충족 + 아래 확인:
+
+1. [ ] 승률/최근 폼/챔피언별 통계가 랭크·드래프트 큐만 집계(ARAM 등 섞인 소환사로 확인) + "N게임 기준" 화면 표기
+2. [ ] 같은 소환사를 반복 검색해도 TIER_HISTORY가 중복 적재되지 않음, 티어/LP 변화 시에만 적재
+3. [ ] 프로필 화면에서 챔피언 통계 탭 + 티어 이력 라인 차트 둘 다 실제로 눈으로 확인 가능
+4. [ ] 매치 목록/상세 화면에 큐 타입이 raw id("420") 대신 사람이 읽을 수 있는 라벨("솔로랭크")로 표시됨
+
+### 실측 트래킹
+
+| 항목 | 추정 | 완료일 | 메모 |
+|---|---|---|---|
+| 1. 통계 집계 서비스 + 큐 표시명 매핑 | 5~6h | | |
+| 2. 티어 이력 스냅샷 | 4~5h | | |
+| 3. 티어 이력 API + 점수 환산 | 2~3h | | |
+| 4. 화면(챔피언 통계 + 티어 이력 차트) | 6~8h | | |
+| 5. 테스트 정리 | 1~2h | | |
+| **합계** | **18~24h** | | PROJECT_PLAN.md §10 추정(22~26h) 범위 안 — 신규 인프라는 없지만 차트 렌더링 + 큐 라벨 매핑이 추가돼 최초 초안(15~21h)보다 올라감 |
+
+---
+
+## 5. 결정 사항 & 미결 사항
+
+### 확정 (이번 세션 결정)
+
+| 항목 | 결정 | 비고 |
+|---|---|---|
+| 티어 이력 화면 형태 | **차트**(Chart.js, CDN) | Bootstrap과 동일한 jsdelivr CDN 패턴, 신규 빌드 도구 불필요(Task 4). tier가 범주형이라 y축용 점수 환산 필요(Task 3 `TierScore`) |
+| 기존 "420" 노출 갭 | **Phase 3에서 고침** | Phase 3 DoD에 포함(§4 4번). Task 1에서 `QueueNames` 매핑 추가, `MatchSummaryResponse`/`MatchDetailResponse` 두 지점만 수정 — 템플릿 변경 불필요 |
+
+### 미결 (grilling 대상 — Phase 2 §5처럼 확정 아님)
+
+| 항목 | 열린 질문 | 기본값(확정 아님) |
+|---|---|---|
+| champion-stats 응답 구조 | 승률/최근폼/챔피언별을 한 엔드포인트 응답에 다 묶을지, 라우트를 쪼갤지 — PROJECT_PLAN.md §4 라우트 표(352행)엔 엔드포인트 1개만 명시 | 한 응답에 묶음(Task 1 DTO 그대로) |
+| 크롤러 → TIER_HISTORY | 크롤러가 수집한 소환사(현재 1만여 명)도 스냅샷 1건씩 넣을지 — PROJECT_PLAN.md 132행이 "적재 무방"이라고만 하지 강제 아님 | 안 함 — 스냅샷 1건은 "이력"이 아니라 값 하나라 제품 가치가 없고, 크롤러는 go-live 후 은퇴(§4 125행) |
