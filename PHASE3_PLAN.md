@@ -50,17 +50,17 @@ Task 1과 Task 2는 서로 독립(하나는 읽기 전용 집계, 하나는 검�
 
 ## 3. 상세 작업 항목 (WBS)
 
-### 1. 통계 집계 서비스 (승률/최근 폼/챔피언별) + 큐 표시명 매핑 — 5~6h
+### 1. 통계 집계 서비스 (승률/최근 폼/챔피언별) + 큐 표시명 매핑 — 5~6h ✅ 완료
 
-- [ ] `MatchParticipantRepository`에 신규 쿼리 추가: `List<MatchParticipant> findByPuuidAndMatch_QueueTypeInOrderByMatch_GameCreationDesc(String puuid, Collection<String> queueTypes)` — 큐 필터는 `MatchService.RIFT_QUEUE_TYPES` 그대로 전달
-- [ ] `ChampionStatsService`(신규): 위 리스트를 스트림으로 3가지 집계 — ① 전체 승/패 → winRate ② `game_creation` 내림차순 최근 폼 배열(승/패) ③ `champion_id` GROUP BY → 챔피언별 games/wins/winRate/평균 KDA. **소환사당 매치 최대 20건 캡(`MatchService.MATCH_ID_FETCH_COUNT`, 크롤러도 동일 캡)이 이미 걸려 있어 "최근 N게임" 상한을 따로 구현할 필요 없음** — DB에 있는 전부가 곧 "최근 최대 20게임"
-- [ ] DTO `ChampionStatsResponse`(games, overallWinRate, recentForm: List\<Boolean\>, perChampion: List\<ChampionStatRow{championId, games, wins, winRate, avgKda}\>) — §5 미결 사항 기본값(한 응답에 다 묶음) 적용
-- [ ] `GET /api/summoners/{summonerId}/champion-stats` — `SummonerController`에 추가(기존 소환사 관련 조회 엔드포인트들과 같은 컨트롤러)
-- [ ] 테스트: 랭크+ARAM 섞인 매치에서 ARAM 제외 확인, 챔피언 그룹핑/승률 계산 검증, 매치 0건(신규 소환사)일 때 빈 응답 처리
-- [ ] **큐 표시명 매핑(§5 확정 — 이번에 같이 고침)**: `QueueNames`(신규, `RIFT_QUEUE_TYPES` 4개만 커버 — 이 화면들에 실제로 노출되는 큐가 이것뿐이라 Data Dragon 전체 큐 목록까지 파싱할 필요 없음) `420→"솔로랭크"`, `440→"자유랭크"`, `400→"일반(드래프트)"`, `430→"일반(블라인드)"`. `MatchSummaryResponse.from()`(`MatchSummaryResponse.java:19`)과 `MatchDetailResponse.from()`(`MatchDetailResponse.java:19`)에서 `match.getQueueType()` 대신 `QueueNames.displayName(match.getQueueType())` 사용 — DB엔 raw id 그대로 저장(원칙①, 표시 레이어에서만 변환). 템플릿(`profile.html`/`match-detail.html`)은 이미 그 필드를 그대로 출력하고 있어 **수정 불필요**
-- [ ] 테스트: `QueueNames.displayName("420")` 등 4개 매핑 확인, 알 수 없는 id는 원본 그대로 반환(방어적 기본값)
+- [x] `MatchParticipantRepository`에 신규 쿼리 추가: `List<MatchParticipant> findByPuuidAndMatch_QueueTypeInOrderByMatch_GameCreationDesc(String puuid, Collection<String> queueTypes)` — 큐 필터는 `MatchService.RIFT_QUEUE_TYPES` 그대로 전달
+- [x] `ChampionStatsService`(신규): 위 리스트를 스트림으로 3가지 집계 — ① 전체 승/패 → winRate ② `game_creation` 내림차순 최근 폼 배열(승/패) ③ `champion_id` GROUP BY → 챔피언별 games/wins/winRate/평균 KDA(`ΣK+ΣA)/ΣD`, `ΣD==0`이면 `ΣK+ΣA`로 대체 - 0으로 나누기 방지). **상한 로직 없음(의도적)** — 계획 초안엔 "소환사당 20건 캡이 있어 상한 불요"라 적었는데, 라이브 확인 중 크롤러가 교차 수집한 인기 소환사는 참가자 행이 400건 이상도 나옴(자신의 20건 자기수집 캡과 별개로, 다른 소환사 백필이 주워담은 같은 매치의 참가자 행도 쌓임) — 그래도 인메모리 집계엔 문제없는 크기라 배치 테이블 불필요 결론은 그대로 유지
+- [x] DTO `ChampionStatsResponse`(games, overallWinRate, recentForm: List\<Boolean\>, perChampion: List\<ChampionStatRow{championId, games, wins, winRate, avgKda}\>) — §5 미결 사항 기본값(한 응답에 다 묶음) 적용
+- [x] `GET /api/summoners/{summonerId}/champion-stats` — `MatchController`에 추가(챔피언 통계는 매치 데이터 집계라 소환사 코어 데이터를 다루는 `SummonerController`보다 매치 관련 엔드포인트들과 같은 컨트롤러가 적합하다고 판단해 배치 변경)
+- [x] 테스트: 랭크+ARAM 섞인 매치에서 ARAM 제외 확인, 챔피언 그룹핑/승률 계산 검증, 매치 0건(신규 소환사)일 때 빈 응답 처리, 0데스 KDA
+- [x] **큐 표시명 매핑(§5 확정 — 이번에 같이 고침)**: `QueueNames`(신규, `RIFT_QUEUE_TYPES` 4개만 커버 — 이 화면들에 실제로 노출되는 큐가 이것뿐이라 Data Dragon 전체 큐 목록까지 파싱할 필요 없음) `420→"솔로랭크"`, `440→"자유랭크"`, `400→"일반(드래프트)"`, `430→"일반(블라인드)"`. `MatchSummaryResponse.from()`과 `MatchDetailResponse.from()`에서 `match.getQueueType()` 대신 `QueueNames.displayName(match.getQueueType())` 사용 — DB엔 raw id 그대로 저장(원칙①, 표시 레이어에서만 변환). 템플릿은 그 필드를 그대로 출력하고 있어 수정 불필요
+- [x] 테스트: `QueueNames.displayName("420")` 등 4개 매핑 확인, 알 수 없는 id는 원본 그대로 반환(방어적 기본값)
 
-**완료 기준**: 실제 검색된 소환사로 라이브 호출 → 챔피언별 games 합이 "협곡+랭크/드래프트" 게임 수와 일치, ARAM/Arena 매치가 있으면 집계에서 빠지는 것 확인. 매치 목록/상세 화면에 "420" 대신 "솔로랭크"가 보임.
+**완료 기준 — 확인됨**: 실제 소환사(id 2536, 크롤러 데이터)로 라이브 호출 → `games=405`, `perChampion` games 합(405)이 `games`와 일치, `overallWinRate≈0.506`. `/matches` 응답의 `queueType`이 "솔로랭크"로 표시됨(라이브 확인, DB-only라 크롤러/개발서버 동시가동 문제 없음). 유닛 테스트 6개(QueueNames 2, ChampionStatsService 4) + 전체 스위트 80개 통과.
 
 ### 2. 티어 이력 스냅샷 적재 — 4~5h
 

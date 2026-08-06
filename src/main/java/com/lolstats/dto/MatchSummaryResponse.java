@@ -2,6 +2,7 @@ package com.lolstats.dto;
 
 import com.lolstats.domain.Match;
 import com.lolstats.domain.MatchParticipant;
+import com.lolstats.service.QueueNames;
 
 import java.time.Instant;
 
@@ -16,7 +17,7 @@ public record MatchSummaryResponse(
     public static MatchSummaryResponse from(MatchParticipant p) {
         Match match = p.getMatch();
         return new MatchSummaryResponse(
-                match.getRiotMatchId(), match.getGameCreation(), match.getGameDuration(), match.getQueueType(),
-                MatchParticipantResponse.from(p));
+                match.getRiotMatchId(), match.getGameCreation(), match.getGameDuration(),
+                QueueNames.displayName(match.getQueueType()), MatchParticipantResponse.from(p));
     }
 }

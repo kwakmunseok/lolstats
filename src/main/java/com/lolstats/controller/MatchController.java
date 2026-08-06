@@ -3,12 +3,14 @@ package com.lolstats.controller;
 import com.lolstats.domain.Match;
 import com.lolstats.domain.MatchParticipant;
 import com.lolstats.domain.Summoner;
+import com.lolstats.dto.ChampionStatsResponse;
 import com.lolstats.dto.MatchDetailResponse;
 import com.lolstats.dto.MatchListResponse;
 import com.lolstats.dto.MatchSummaryResponse;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
 import com.lolstats.repository.SummonerRepository;
+import com.lolstats.service.ChampionStatsService;
 import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
 import org.springframework.data.domain.Page;
@@ -33,16 +35,19 @@ public class MatchController {
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
     private final MatchCollectionQueue matchCollectionQueue;
+    private final ChampionStatsService championStatsService;
 
     public MatchController(
             SummonerRepository summonerRepository,
             MatchRepository matchRepository,
             MatchParticipantRepository matchParticipantRepository,
-            MatchCollectionQueue matchCollectionQueue) {
+            MatchCollectionQueue matchCollectionQueue,
+            ChampionStatsService championStatsService) {
         this.summonerRepository = summonerRepository;
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
         this.matchCollectionQueue = matchCollectionQueue;
+        this.championStatsService = championStatsService;
     }
 
     // Reads whatever is already in the DB; collection itself happens in the background
@@ -71,6 +76,15 @@ public class MatchController {
                 : null;
 
         return MatchListResponse.of(matches, collecting, collectedCount, totalCount);
+    }
+
+    // 승률/최근 폼/챔피언별 통계 - 랭크/드래프트 큐만 집계 (PROJECT_PLAN.md §4 Phase 3 큐 필터,
+    // ChampionStatsService가 MatchService.RIFT_QUEUE_TYPES 재사용).
+    @GetMapping("/summoners/{summonerId}/champion-stats")
+    public ChampionStatsResponse getChampionStats(@PathVariable Long summonerId) {
+        Summoner summoner = summonerRepository.findById(summonerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "summoner not found: " + summonerId));
+        return championStatsService.stats(summoner.getPuuid());
     }
 
     @GetMapping("/matches/{riotMatchId}")
