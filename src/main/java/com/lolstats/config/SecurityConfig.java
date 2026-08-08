@@ -40,6 +40,17 @@ public class SecurityConfig {
                         .anyRequest().permitAll())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenService), UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(new CsrfDoubleSubmitFilter(), JwtAuthenticationFilter.class)
+                // Task 4 uses @AuthenticationPrincipal Long userId on a permitAll route (search
+                // history is recorded only when the caller happens to be logged in). Spring
+                // Security's default AnonymousAuthenticationFilter would otherwise leave a
+                // non-null Authentication with a String principal ("anonymousUser") in the
+                // context for every unauthenticated request, and casting that to Long throws.
+                // Disabling it means "not authenticated" is simply a null Authentication, which
+                // @AuthenticationPrincipal already resolves to null - no cast attempted. permitAll
+                // routes don't need an Authentication object to exist either way, and the
+                // .authenticated() check on /api/users/me/** already treated anonymous as
+                // "not authenticated" before this, so nothing else changes.
+                .anonymous(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 // No login page exists (Thymeleaf login.html lands in Task 5) - without this,

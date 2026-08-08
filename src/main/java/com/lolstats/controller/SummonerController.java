@@ -7,9 +7,11 @@ import com.lolstats.repository.SummonerRepository;
 import com.lolstats.repository.TierHistoryRepository;
 import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
+import com.lolstats.service.SearchHistoryService;
 import com.lolstats.service.SummonerService;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,18 +33,21 @@ public class SummonerController {
     private final MatchCollectionQueue matchCollectionQueue;
     private final SummonerRepository summonerRepository;
     private final TierHistoryRepository tierHistoryRepository;
+    private final SearchHistoryService searchHistoryService;
 
     public SummonerController(
             SummonerService summonerService,
             MatchService matchService,
             MatchCollectionQueue matchCollectionQueue,
             SummonerRepository summonerRepository,
-            TierHistoryRepository tierHistoryRepository) {
+            TierHistoryRepository tierHistoryRepository,
+            SearchHistoryService searchHistoryService) {
         this.summonerService = summonerService;
         this.matchService = matchService;
         this.matchCollectionQueue = matchCollectionQueue;
         this.summonerRepository = summonerRepository;
         this.tierHistoryRepository = tierHistoryRepository;
+        this.searchHistoryService = searchHistoryService;
     }
 
     // "riot-id" prefix keeps this 2-segment route from colliding with /{summonerId}/matches
@@ -51,11 +56,19 @@ public class SummonerController {
     @GetMapping("/riot-id/{gameName}/{tagLine}")
     public SummonerResponse getByRiotId(
             @PathVariable @Size(min = 3, max = 16, message = "게임 이름은 3~16자여야 합니다") String gameName,
-            @PathVariable @Size(min = 3, max = 5, message = "태그라인은 3~5자여야 합니다") String tagLine) {
+            @PathVariable @Size(min = 3, max = 5, message = "태그라인은 3~5자여야 합니다") String tagLine,
+            // Public route (PHASE5_PLAN.md §1) - optional auth. Null when the caller has no
+            // valid access_token cookie (JwtAuthenticationFilter runs on every request
+            // regardless of route, so this is populated whenever a logged-in user happens to
+            // search - no separate "selective auth" mechanism needed).
+            @AuthenticationPrincipal Long userId) {
         Summoner summoner = summonerService.findOrFetch(gameName, tagLine);
         // Response returns immediately with whatever's cached; missing matches are handed to
         // the background queue instead of fetched synchronously (Phase 2 Task 3).
         triggerCollectionIfNeeded(summoner.getPuuid());
+        if (userId != null) {
+            searchHistoryService.record(userId, summoner);
+        }
         return SummonerResponse.from(summoner);
     }
 

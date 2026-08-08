@@ -98,12 +98,15 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 
 **완료 기준 — 확인됨(라이브)**: 로그인 → `XSRF-TOKEN` 쿠키 발급 확인 → CSRF 헤더 없이 즐겨찾기 추가 시도 `403` → 헤더 포함하면 `201` → 같은 소환사 중복 추가해도 `201`(목록엔 1건만, 중복 없음 확인) → 존재하지 않는 소환사 추가 시도 `404` → CSRF 헤더 없이 삭제 `403` → 헤더 포함 삭제 `204` → 삭제 후 목록 조회 시 빈 배열 → 비로그인 상태 목록 조회 `401` → 기존 공개 라우트(프로필 화면, `/api/summoners/{id}/refresh` — `/api/users/me/**` 밖이라 CSRF 검사 대상 아님) 전부 정상. 유닛 테스트 6개 신규 + 전체 스위트 109개 통과.
 
-#### 4. 최근 검색 기록 저장/조회 — 1.5~2h
+#### 4. 최근 검색 기록 저장/조회 — 1.5~2h ✅ 완료
 
-- [ ] `SEARCH_HISTORY` 엔티티(§6)
-- [ ] `GET /api/users/me/search-history` — JWT 필요
-- [ ] **미결(§5)**: 기록 저장 지점 — `/api/summoners/riot-id/{gameName}/{tagLine}`는 현재 인증 불필요 공개 엔드포인트(SEARCH_COUNTS만 증가, §7). 로그인 사용자의 검색을 기록하려면 이 엔드포인트에 "선택적 인증"(쿠키 있으면 파싱해서 기록, 없어도 통과)을 추가해야 함 — 신규 분기점, 착수 전 확정 필요
-- [ ] 테스트: 로그인 사용자 검색 시 기록 저장, 비로그인은 미저장
+- [x] `SEARCH_HISTORY` 엔티티(§6)
+- [x] `GET /api/users/me/search-history` — JWT 필요, 최근 20건(`PageRequest.of(0, 20)`)
+- [x] **미결(§5) 해소 — "선택적 인증"은 이미 공짜로 있었음**: `JwtAuthenticationFilter`(Task 2)가 라우트 종류와 무관하게 **모든** 요청에서 돌면서 유효한 `access_token` 쿠키가 있으면 `SecurityContextHolder`에 principal을 세팅하는 구조라, `/api/summoners/riot-id/{gameName}/{tagLine}`(permitAll)에 `@AuthenticationPrincipal Long userId` 파라미터만 추가하면 로그인 여부에 따라 자동으로 null/실제 id가 들어옴 — 별도 분기 로직 불필요. 다만 이걸 위해 **`SecurityConfig`에서 익명 인증(anonymous auth)을 꺼야 했음**: 기본값(Spring Security anonymous 활성화)이면 비로그인 요청도 principal이 `"anonymousUser"`(String)인 `AnonymousAuthenticationToken`이 세팅돼 있어서 `@AuthenticationPrincipal Long userId`가 String→Long 캐스팅에서 죽음. `.anonymous(disable)`로 비로그인 시 `Authentication`이 아예 null이 되게 바꿈(`.authenticated()` 매처는 원래도 익명 토큰을 "인증 안 됨"으로 처리하고 있었어서 Task 2/3에서 검증한 401 동작엔 영향 없음 — 라이브로 재확인)
+- [x] 검색 기록도 **멱등/중복 방지**: 같은 소환사를 다시 검색하면 새 행을 추가하는 대신 기존 행의 `searched_at`만 갱신(맨 위로 이동) — `profile.html`에 이미 있는 비로그인 사용자용 `recentSearches` localStorage 로직과 동일한 UX 패턴
+- [x] 테스트: `SearchHistoryServiceTest` 3개(신규 검색 저장, 재검색 시 타임스탬프만 갱신, 목록 조회)
+
+**완료 기준 — 확인됨(라이브)**: 비로그인 검색 `200`(에러 없음, 기록 안 됨) → 로그인 후 같은 소환사 검색 `200` → `/api/users/me/search-history` 조회 시 1건 확인 → 같은 소환사 재검색 후 다시 조회해도 여전히 1건(중복 없음, dedup 확인) → 비로그인으로 `/api/users/me/favorites`·`/api/users/me/search-history` 둘 다 여전히 `401`(익명 인증 비활성화가 기존 Task 2/3 동작을 깨지 않았음 확인) → Task 3의 즐겨찾기 추가(CSRF 헤더 포함)도 정상 동작 확인 → 공개 화면 라우트도 정상. 유닛 테스트 3개 신규 + 전체 스위트 112개 통과.
 
 #### 5. 로그인/회원가입/마이페이지 화면 — 3~4h
 
@@ -165,7 +168,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 1. USERS + 회원가입 | 2~3h | 2026-08-08 | |
 | 2. JWT 로그인/로그아웃/재발급 | 5~6h | 2026-08-08 | CSRF 토큰 구현은 Task 3로 이동(위 §5 참고), 그만큼 Task 2 실작업은 예상보다 가벼웠고 Task 3가 무거워짐 |
 | 3. 즐겨찾기 API | 1.5~2h | 2026-08-08 | CSRF 토큰 구현이 Task 2에서 이관돼 실작업은 3~4h로 예상보다 늘어남 |
-| 4. 검색 기록 저장/조회 | 1.5~2h | | |
+| 4. 검색 기록 저장/조회 | 1.5~2h | 2026-08-08 | 예상대로 가벼웠음 — Task 2의 JwtAuthenticationFilter가 이미 선택적 인증을 공짜로 제공 |
 | 5. 화면(로그인/회원가입/마이페이지) | 3~4h | | |
 | 6. Validation 통합 | 2~3h | | |
 | 7. 테스트 커버리지 보강 | 1~2h | | |
@@ -195,5 +198,4 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 
 | 항목 | 열린 질문 | 기본값(확정 아님) |
 |---|---|---|
-| SEARCH_HISTORY 기록 지점 | 공개 검색 엔드포인트(`/api/summoners/riot-id/...`)에 "선택적 인증" 추가 필요(Task 4 참고) | 선택적 인증 추가 |
 | Swagger prod 노출 여부 | 포트폴리오 어필 vs 공개 API 문서 노출 트레이드오프(Task 8 참고) | dev 전용, prod 비노출 |

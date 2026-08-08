@@ -2,7 +2,9 @@ package com.lolstats.controller;
 
 import com.lolstats.dto.FavoriteRequest;
 import com.lolstats.dto.FavoriteResponse;
+import com.lolstats.dto.SearchHistoryResponse;
 import com.lolstats.service.FavoriteService;
+import com.lolstats.service.SearchHistoryService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,9 +26,11 @@ import java.util.List;
 public class UserController {
 
     private final FavoriteService favoriteService;
+    private final SearchHistoryService searchHistoryService;
 
-    public UserController(FavoriteService favoriteService) {
+    public UserController(FavoriteService favoriteService, SearchHistoryService searchHistoryService) {
         this.favoriteService = favoriteService;
+        this.searchHistoryService = searchHistoryService;
     }
 
     @GetMapping("/favorites")
@@ -44,5 +48,10 @@ public class UserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeFavorite(@AuthenticationPrincipal Long userId, @PathVariable Long summonerId) {
         favoriteService.remove(userId, summonerId);
+    }
+
+    @GetMapping("/search-history")
+    public List<SearchHistoryResponse> searchHistory(@AuthenticationPrincipal Long userId) {
+        return searchHistoryService.list(userId).stream().map(SearchHistoryResponse::from).toList();
     }
 }
