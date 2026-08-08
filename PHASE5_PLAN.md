@@ -75,14 +75,17 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 
 **완료 기준 — 확인됨**: 라이브 회원가입 → `201` + `{"id":1,"email":"...","nickname":"테스터"}`(비밀번호 필드 없음 확인). 같은 이메일 재가입 → `409`. 약관 미동의/이메일 형식 오류 → 둘 다 `400`. DB 직접 조회로 `password_hash`가 `$2a$10$...`(bcrypt) 형태로 저장, 평문 아님 확인. 유닛 테스트 2개(`AuthServiceTest`) + 전체 스위트 89개 통과.
 
-#### 2. JWT 로그인/로그아웃/재발급 — 5~6h
+#### 2. JWT 로그인/로그아웃/재발급 — 5~6h ✅ 완료
 
-- [ ] `REFRESH_TOKENS` 엔티티(§6) — `token_hash`로 저장(원문 저장 금지), `revoked` 플래그로 무효화
-- [ ] `POST /api/auth/login` — 이메일/비번 검증 후 access(15~30분)/refresh(7~14일) 토큰을 httpOnly+Secure 쿠키로 응답(§6 확정 — Thymeleaf 서버 렌더 페이지 이동엔 Authorization 헤더를 못 붙이고, localStorage 저장은 XSS에 취약). 5회 연속 실패 잠금은 이월(Task 1 참고)이라 미구현
-- [ ] `POST /api/auth/logout` — refresh token revoke + 쿠키 삭제
-- [ ] `POST /api/auth/refresh` — refresh 쿠키 검증(해시 대조) 후 access 재발급
-- [ ] Spring Security 필터 — 쿠키의 JWT를 파싱해 인증 컨텍스트 구성. CSRF는 SameSite=Lax + 상태 변경 API의 CSRF 토큰으로 방어(§6 확정)
-- [ ] 테스트: 로그인 성공/실패(잘못된 비번), access 재발급, 로그아웃 후 refresh 거부, revoked 토큰 거부
+- [x] `REFRESH_TOKENS` 엔티티(§6) — `token_hash`로 저장(원문 저장 금지, SHA-256 — bcrypt는 저엔트로피 비밀번호용이라 이미 256비트 랜덤인 refresh 토큰엔 과함), `revoked` 플래그로 무효화
+- [x] `POST /api/auth/login` — 이메일/비번 검증 후 access(30분)/refresh(14일, §5 미결 기본값 채택) 토큰을 httpOnly 쿠키로 응답(§6 확정 — Thymeleaf 서버 렌더 페이지 이동엔 Authorization 헤더를 못 붙이고, localStorage 저장은 XSS에 취약). `Secure` 플래그는 `app.jwt.cookie-secure`로 프로필별 분리(dev=false, prod=true — 안 그러면 로컬 http에서 로그인이 "성공"해도 쿠키가 전송 안 돼 다음 요청부터 익명 처리되는 유령 버그). 5회 연속 실패 잠금은 이월(Task 1 참고)이라 미구현
+- [x] `POST /api/auth/logout` — refresh token revoke + 쿠키 삭제
+- [x] `POST /api/auth/refresh` — refresh 쿠키 검증(해시 대조 + 만료/revoked 체크) 후 access 재발급. 회전(rotation) 없음(§5 미결 기본값)
+- [x] `spring-boot-starter-security` 추가(Task 1의 `spring-security-crypto` 단독 의존성을 대체) + `JwtAuthenticationFilter`(쿠키의 JWT 파싱해 `SecurityContextHolder`에 userId principal만 세팅 — `UserDetailsService`/권한 불필요, "유효한 세션인가"만 확인하면 됨) + `SecurityConfig`에 `SecurityFilterChain` 빈 추가
+- [x] **CSRF는 이번 Task 범위에서 제외, Task 3로 미룸(계획과 다른 결정 — 아래 §5 미결 참고)**: `CookieCsrfTokenRepository` + 커스텀 토큰-강제-resolve 필터로 구현 시도했으나 라이브 검증 중 XSRF-TOKEN 쿠키가 요청마다 지워졌다 재생성됐다 하는 문제 발견(`request.getAttribute("_csrf")` 대신 `CsrfToken.class.getName()`을 읽은 게 원인 — Spring의 `XorCsrfTokenRequestAttributeHandler` BREACH 방어 인코딩을 우회해버림). 키를 고쳐도 여전히 매끄럽지 않았고, **지금 시점엔 CSRF로 보호할 상태 변경 엔드포인트가 사실상 없음**(signup/login=세션 자체가 없음, logout/refresh=공격자가 피해자 쿠키를 훔쳤다면 이미 그걸로 직접 호출 가능이라 CSRF로 막을 추가 이득이 없음, 기존 `/api/summoners/{id}/refresh`=개인 상태 변경 아님)이 결론이라 `csrf(disable)`로 전환. Task 3의 `/api/users/me/**`(즐겨찾기)가 처음으로 "진짜 개인 상태를 바꾸는" 엔드포인트라 CSRF 토큰은 그때 화면과 같이 넣음
+- [x] 테스트: `JwtTokenServiceTest`(5개 — 토큰 발급/파싱 round-trip, 변조 거부, 쓰레기 입력 거부, 해시 일관성, opaque 토큰 랜덤성), `AuthServiceTest`(9개 신규 — 로그인 성공/오탈자 비번/미가입 이메일, 재발급 성공/revoked/만료/미존재 토큰, 로그아웃 성공/미존재 토큰)
+
+**완료 기준 — 확인됨(라이브, Node `http` 모듈로 쿠키 직접 검사)**: 회원가입 → 로그인(`200`, `access_token`+`refresh_token` 쿠키 확인 — `HttpOnly`/`SameSite=Lax`/`Max-Age` 정확, dev에선 `Secure` 없음 확인) → `POST /api/auth/refresh`(`200`, 새 access 토큰) → 로그아웃(`200`) → 로그아웃 후 재발급 시도(`401` + "다시 로그인해주세요" — DB에서 실제 revoke 확인) → 틀린 비번/미가입 이메일 로그인(둘 다 `401`, 응답 동일 — enumeration 방지) 전부 확인. 기존 Phase 1~3 공개 라우트(`/summoners/**`, `/api/summoners/**` GET/POST) 전부 무인증 `200` 유지 확인 — Spring Security 도입이 기존 기능을 잠그지 않았음. `/api/users/me/favorites`(Task 3 미구현) 무인증 호출 시 `401` 확인 — `authorizeHttpRequests` 매처가 아직 없는 라우트에도 먼저 적용됨. 유닛 테스트 14개 신규 + 전체 스위트 103개 통과.
 
 #### 3. 즐겨찾기 API — 1.5~2h
 
@@ -155,7 +158,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 항목 | 추정 | 완료일 | 메모 |
 |---|---|---|---|
 | 1. USERS + 회원가입 | 2~3h | 2026-08-08 | |
-| 2. JWT 로그인/로그아웃/재발급 | 5~6h | | |
+| 2. JWT 로그인/로그아웃/재발급 | 5~6h | 2026-08-08 | CSRF 토큰 구현은 Task 3로 이동(위 §5 참고), 그만큼 Task 2 실작업은 예상보다 가벼웠고 Task 3가 무거워짐 |
 | 3. 즐겨찾기 API | 1.5~2h | | |
 | 4. 검색 기록 저장/조회 | 1.5~2h | | |
 | 5. 화면(로그인/회원가입/마이페이지) | 3~4h | | |
@@ -174,18 +177,19 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 
 | 항목 | 결정 | 근거 |
 |---|---|---|
-| 토큰 저장 위치 | access/refresh 둘 다 httpOnly + Secure 쿠키 | §6 — SSR 페이지 이동엔 Authorization 헤더 못 붙임, localStorage는 XSS 취약 |
-| CSRF 방어 | SameSite=Lax + 상태 변경 API의 CSRF 토큰 | §6 |
-| Refresh Token 저장 | DB에 해시로 저장(원문 금지), `revoked` 플래그로 무효화 | §6 |
+| 토큰 저장 위치 | access/refresh 둘 다 httpOnly + Secure 쿠키(Secure는 dev=false/prod=true로 프로필 분리) | §6 — SSR 페이지 이동엔 Authorization 헤더 못 붙임, localStorage는 XSS 취약 |
+| CSRF 방어 | SameSite=Lax는 Task 2에서 적용됨. **CSRF 토큰은 Task 3로 미룸**(아래 미결 참고 — 계획 당시엔 확정으로 적었으나 Task 2 라이브 검증 중 재검토) | §6 / Task 2 완료 기준 |
+| Refresh Token 저장 | DB에 SHA-256 해시로 저장(원문 금지), `revoked` 플래그로 무효화 | §6 |
 | 아이디 찾기 | 미제공 — 이메일이 로그인 ID라 이메일 주소 enumeration 방지 | §6 |
 | 비밀번호 해싱 | bcrypt | §3/§6 |
 | 이메일 인증/재설정/로그인 잠금 | 기본 이월 | §4/§10 |
+| Access/Refresh TTL | access 30분, refresh 14일 | Task 2에서 확정(§6 범위 안에서 선택) |
+| Refresh 토큰 회전 | 미회전(만료까지 재사용) | Task 2에서 확정 |
 
 ### 미결 (grilling 대상 — 착수 전 확정 또는 기본값 수용 필요)
 
 | 항목 | 열린 질문 | 기본값(확정 아님) |
 |---|---|---|
-| Access/Refresh 정확한 TTL | §6은 범위만 제시(access 15~30분, refresh 7~14일) | access 30분, refresh 14일(느슨하게 시작, 필요시 축소) |
-| Refresh 토큰 회전(rotation) 여부 | 매 refresh 호출마다 새 refresh 토큰을 발급할지, 만료까지 같은 토큰을 재사용할지 — 미회전이면 탈취된 refresh가 만료 시점까지 계속 유효 | 미회전(단순 구현 우선, 트레이드오프는 README 트러블슈팅에 기록) |
 | SEARCH_HISTORY 기록 지점 | 공개 검색 엔드포인트(`/api/summoners/riot-id/...`)에 "선택적 인증" 추가 필요(Task 4 참고) | 선택적 인증 추가 |
 | Swagger prod 노출 여부 | 포트폴리오 어필 vs 공개 API 문서 노출 트레이드오프(Task 8 참고) | dev 전용, prod 비노출 |
+| Task 3 CSRF 토큰 구현 방식 | `CookieCsrfTokenRepository` + 강제 resolve 필터 조합이 Task 2에서 라이브 검증 중 불안정했음(§3 Task 2 참고) — Task 3에서 원인을 더 파거나, 대안(예: 커스텀 헤더 검증만으로 단순화)을 쓸지 | Task 3 착수 시 재검토 |
