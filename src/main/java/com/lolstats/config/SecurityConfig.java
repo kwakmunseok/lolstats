@@ -26,20 +26,20 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenService jwtTokenService) throws Exception {
         http
-                // CSRF enforcement is deferred to Task 3 (PHASE5_PLAN.md), not built here.
-                // Right now zero endpoints exist that a CSRF attack could meaningfully abuse:
-                // signup/login have no prior session to forge a request against, the existing
-                // /api/summoners/** POST (refresh button, Phase 1-3) changes no personal state,
-                // and logout/refresh-token give an attacker nothing they don't already have with
-                // the victim's stolen cookie. Task 3 adds /api/users/me/** (favorites) - the
-                // first endpoint that actually mutates per-user state - and wires the
-                // double-submit cookie token then, alongside the screens that carry it.
+                // Spring Security's own CsrfFilter is disabled - Task 2 hit an unstable
+                // XSRF-TOKEN cookie with CookieCsrfTokenRepository (its BREACH-protection XOR
+                // encoding layer). CsrfDoubleSubmitFilter below is a plain double-submit-cookie
+                // check instead, scoped to /api/users/me/** - the only endpoints (added this
+                // task) that mutate real per-user state. Nothing else needs it: signup/login
+                // have no prior session to forge a request against, and the existing
+                // /api/summoners/** POST (refresh button, Phase 1-3) changes no personal state.
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/users/me/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenService), UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new CsrfDoubleSubmitFilter(), JwtAuthenticationFilter.class)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 // No login page exists (Thymeleaf login.html lands in Task 5) - without this,

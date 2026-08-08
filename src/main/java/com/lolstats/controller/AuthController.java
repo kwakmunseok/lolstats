@@ -1,11 +1,13 @@
 package com.lolstats.controller;
 
+import com.lolstats.config.CsrfDoubleSubmitFilter;
 import com.lolstats.domain.User;
 import com.lolstats.dto.LoginRequest;
 import com.lolstats.dto.SignupRequest;
 import com.lolstats.dto.SignupResponse;
 import com.lolstats.dto.TokenPair;
 import com.lolstats.service.AuthService;
+import com.lolstats.service.JwtTokenService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,16 +29,19 @@ public class AuthController {
     private static final String REFRESH_COOKIE = "refresh_token";
 
     private final AuthService authService;
+    private final JwtTokenService jwtTokenService;
     private final boolean cookieSecure;
     private final long accessTokenMinutes;
     private final long refreshTokenDays;
 
     public AuthController(
             AuthService authService,
+            JwtTokenService jwtTokenService,
             @Value("${app.jwt.cookie-secure}") boolean cookieSecure,
             @Value("${app.jwt.access-token-minutes}") long accessTokenMinutes,
             @Value("${app.jwt.refresh-token-days}") long refreshTokenDays) {
         this.authService = authService;
+        this.jwtTokenService = jwtTokenService;
         this.cookieSecure = cookieSecure;
         this.accessTokenMinutes = accessTokenMinutes;
         this.refreshTokenDays = refreshTokenDays;
@@ -70,20 +75,25 @@ public class AuthController {
     }
 
     private void setAuthCookies(HttpServletResponse response, TokenPair tokens) {
-        addCookie(response, ACCESS_COOKIE, tokens.accessToken(), accessTokenMinutes * 60);
-        addCookie(response, REFRESH_COOKIE, tokens.refreshToken(), refreshTokenDays * 24 * 60 * 60);
+        addCookie(response, ACCESS_COOKIE, tokens.accessToken(), accessTokenMinutes * 60, true);
+        addCookie(response, REFRESH_COOKIE, tokens.refreshToken(), refreshTokenDays * 24 * 60 * 60, true);
+        // Not httpOnly - CsrfDoubleSubmitFilter (Task 3) needs client JS to read this and echo
+        // it back as a header. Same lifetime as the access token; refresh() reissues it too.
+        addCookie(response, CsrfDoubleSubmitFilter.CSRF_COOKIE, jwtTokenService.generateOpaqueToken(),
+                accessTokenMinutes * 60, false);
     }
 
     private void clearAuthCookies(HttpServletResponse response) {
-        addCookie(response, ACCESS_COOKIE, "", 0);
-        addCookie(response, REFRESH_COOKIE, "", 0);
+        addCookie(response, ACCESS_COOKIE, "", 0, true);
+        addCookie(response, REFRESH_COOKIE, "", 0, true);
+        addCookie(response, CsrfDoubleSubmitFilter.CSRF_COOKIE, "", 0, false);
     }
 
     // ResponseCookie (not jakarta.servlet.http.Cookie) - the Servlet Cookie API has no SameSite
     // support, and PROJECT_PLAN.md §6 commits to SameSite=Lax as part of the CSRF defense.
-    private void addCookie(HttpServletResponse response, String name, String value, long maxAgeSeconds) {
+    private void addCookie(HttpServletResponse response, String name, String value, long maxAgeSeconds, boolean httpOnly) {
         ResponseCookie cookie = ResponseCookie.from(name, value)
-                .httpOnly(true)
+                .httpOnly(httpOnly)
                 .secure(cookieSecure)
                 .sameSite("Lax")
                 .path("/")

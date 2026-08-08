@@ -87,11 +87,16 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 
 **완료 기준 — 확인됨(라이브, Node `http` 모듈로 쿠키 직접 검사)**: 회원가입 → 로그인(`200`, `access_token`+`refresh_token` 쿠키 확인 — `HttpOnly`/`SameSite=Lax`/`Max-Age` 정확, dev에선 `Secure` 없음 확인) → `POST /api/auth/refresh`(`200`, 새 access 토큰) → 로그아웃(`200`) → 로그아웃 후 재발급 시도(`401` + "다시 로그인해주세요" — DB에서 실제 revoke 확인) → 틀린 비번/미가입 이메일 로그인(둘 다 `401`, 응답 동일 — enumeration 방지) 전부 확인. 기존 Phase 1~3 공개 라우트(`/summoners/**`, `/api/summoners/**` GET/POST) 전부 무인증 `200` 유지 확인 — Spring Security 도입이 기존 기능을 잠그지 않았음. `/api/users/me/favorites`(Task 3 미구현) 무인증 호출 시 `401` 확인 — `authorizeHttpRequests` 매처가 아직 없는 라우트에도 먼저 적용됨. 유닛 테스트 14개 신규 + 전체 스위트 103개 통과.
 
-#### 3. 즐겨찾기 API — 1.5~2h
+#### 3. 즐겨찾기 API — 1.5~2h (+CSRF 이관분, 아래 참고) ✅ 완료
 
-- [ ] `FAVORITES` 엔티티(§6)
-- [ ] `GET/POST /api/users/me/favorites`, `DELETE /api/users/me/favorites/{summonerId}` — 전부 JWT 필요
-- [ ] 테스트: 추가/삭제/중복 추가 방지/목록 조회
+- [x] `FAVORITES` 엔티티(§6, `(user_id, summoner_id)` unique 제약)
+- [x] `GET/POST /api/users/me/favorites`, `DELETE /api/users/me/favorites/{summonerId}` — 전부 JWT 필요(`@AuthenticationPrincipal Long userId` — `JwtAuthenticationFilter`가 세팅한 principal 그대로 사용, 별도 `UserDetailsService` 불필요)
+- [x] 추가/삭제 둘 다 **멱등**으로 설계(추가 = 이미 있으면 무시, 삭제 = 없으면 무시) — 즐겨찾기 토글 버튼 UI에서 "이미 즐겨찾기됨" 에러를 별도로 처리할 필요가 없어짐
+- [x] 존재하지 않는 summonerId로 추가 시도 시 404
+- [x] 테스트: 추가/중복 추가(멱등 확인)/미존재 소환사 404/삭제/미존재 삭제(멱등 확인)/목록 조회 정렬 — `FavoriteServiceTest` 6개
+- [x] **CSRF 토큰 구현(Task 2에서 이관됨, §5 미결 해소)**: Spring Security 자체 `CsrfFilter`(`CookieCsrfTokenRepository`) 대신 **직접 구현한 이중 제출 쿠키(double-submit-cookie) 필터**(`CsrfDoubleSubmitFilter`) 채택 — Task 2에서 겪은 XOR 인코딩/지연 로딩 문제를 피하려고 더 단순한 방식으로 전환. 로그인/재발급 시 `XSRF-TOKEN` 쿠키(httpOnly 아님 — JS가 읽어야 함)를 추가 발급하고, `/api/users/me/**`로 오는 상태 변경 요청(POST/PUT/PATCH/DELETE)에 대해 `X-XSRF-TOKEN` 헤더 값이 쿠키 값과 일치하는지만 검사. 서버 사이드 저장/만료 로직 없음(무상태) — 값 일치 여부만 확인하면 되는 게 이중 제출 쿠키 패턴의 핵심이라 그걸로 충분
+
+**완료 기준 — 확인됨(라이브)**: 로그인 → `XSRF-TOKEN` 쿠키 발급 확인 → CSRF 헤더 없이 즐겨찾기 추가 시도 `403` → 헤더 포함하면 `201` → 같은 소환사 중복 추가해도 `201`(목록엔 1건만, 중복 없음 확인) → 존재하지 않는 소환사 추가 시도 `404` → CSRF 헤더 없이 삭제 `403` → 헤더 포함 삭제 `204` → 삭제 후 목록 조회 시 빈 배열 → 비로그인 상태 목록 조회 `401` → 기존 공개 라우트(프로필 화면, `/api/summoners/{id}/refresh` — `/api/users/me/**` 밖이라 CSRF 검사 대상 아님) 전부 정상. 유닛 테스트 6개 신규 + 전체 스위트 109개 통과.
 
 #### 4. 최근 검색 기록 저장/조회 — 1.5~2h
 
@@ -159,7 +164,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 |---|---|---|---|
 | 1. USERS + 회원가입 | 2~3h | 2026-08-08 | |
 | 2. JWT 로그인/로그아웃/재발급 | 5~6h | 2026-08-08 | CSRF 토큰 구현은 Task 3로 이동(위 §5 참고), 그만큼 Task 2 실작업은 예상보다 가벼웠고 Task 3가 무거워짐 |
-| 3. 즐겨찾기 API | 1.5~2h | | |
+| 3. 즐겨찾기 API | 1.5~2h | 2026-08-08 | CSRF 토큰 구현이 Task 2에서 이관돼 실작업은 3~4h로 예상보다 늘어남 |
 | 4. 검색 기록 저장/조회 | 1.5~2h | | |
 | 5. 화면(로그인/회원가입/마이페이지) | 3~4h | | |
 | 6. Validation 통합 | 2~3h | | |
@@ -178,7 +183,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 항목 | 결정 | 근거 |
 |---|---|---|
 | 토큰 저장 위치 | access/refresh 둘 다 httpOnly + Secure 쿠키(Secure는 dev=false/prod=true로 프로필 분리) | §6 — SSR 페이지 이동엔 Authorization 헤더 못 붙임, localStorage는 XSS 취약 |
-| CSRF 방어 | SameSite=Lax는 Task 2에서 적용됨. **CSRF 토큰은 Task 3로 미룸**(아래 미결 참고 — 계획 당시엔 확정으로 적었으나 Task 2 라이브 검증 중 재검토) | §6 / Task 2 완료 기준 |
+| CSRF 방어 | SameSite=Lax(Task 2) + `/api/users/me/**` 대상 이중 제출 쿠키 필터(Task 3, `CsrfDoubleSubmitFilter` — Spring Security 기본 `CsrfFilter` 대신 직접 구현) | §6 / Task 3 완료 기준 |
 | Refresh Token 저장 | DB에 SHA-256 해시로 저장(원문 금지), `revoked` 플래그로 무효화 | §6 |
 | 아이디 찾기 | 미제공 — 이메일이 로그인 ID라 이메일 주소 enumeration 방지 | §6 |
 | 비밀번호 해싱 | bcrypt | §3/§6 |
@@ -192,4 +197,3 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 |---|---|---|
 | SEARCH_HISTORY 기록 지점 | 공개 검색 엔드포인트(`/api/summoners/riot-id/...`)에 "선택적 인증" 추가 필요(Task 4 참고) | 선택적 인증 추가 |
 | Swagger prod 노출 여부 | 포트폴리오 어필 vs 공개 API 문서 노출 트레이드오프(Task 8 참고) | dev 전용, prod 비노출 |
-| Task 3 CSRF 토큰 구현 방식 | `CookieCsrfTokenRepository` + 강제 resolve 필터 조합이 Task 2에서 라이브 검증 중 불안정했음(§3 Task 2 참고) — Task 3에서 원인을 더 파거나, 대안(예: 커스텀 헤더 검증만으로 단순화)을 쓸지 | Task 3 착수 시 재검토 |
