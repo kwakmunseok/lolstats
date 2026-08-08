@@ -31,51 +31,101 @@
         </div>
     </div>
 
-    <h2 class="h6 text-muted mb-2">최근 매치</h2>
-    <p th:if="${#lists.isEmpty(matches)}" class="text-muted">매치 기록이 없습니다.</p>
+    <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#matchesPane" type="button">최근 매치</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#championStatsPane" type="button">챔피언 통계</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tierHistoryPane" type="button">티어 이력</button>
+        </li>
+    </ul>
 
-    <a th:each="m : ${matches}" th:href="@{/matches/{id}(id=${m.riotMatchId})}"
-       class="card mb-2 text-decoration-none text-body"
-       th:classappend="${m.player.win} ? 'border-primary-subtle bg-primary-subtle' : 'border-danger-subtle bg-danger-subtle'">
-        <div class="card-body d-flex align-items-center gap-3 py-2">
-            <div class="text-center" style="width: 90px;">
-                <div class="small fw-bold" th:text="${m.player.win} ? '승리' : '패배'">승리</div>
-                <div class="small text-muted" th:text="${m.queueType}">420</div>
-                <div class="small text-muted" th:text="${m.duration}">30:00</div>
-                <div class="small text-muted" th:text="${m.playedAt}">2026-01-01</div>
-            </div>
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="matchesPane" role="tabpanel">
+            <p th:if="${#lists.isEmpty(matches)}" class="text-muted">매치 기록이 없습니다.</p>
 
-            <img th:if="${m.player.championImageUrl}" th:src="${m.player.championImageUrl}" width="48" height="48"
-                 class="rounded" th:alt="${m.player.championName}">
+            <a th:each="m : ${matches}" th:href="@{/matches/{id}(id=${m.riotMatchId})}"
+               class="card mb-2 text-decoration-none text-body"
+               th:classappend="${m.player.win} ? 'border-primary-subtle bg-primary-subtle' : 'border-danger-subtle bg-danger-subtle'">
+                <div class="card-body d-flex align-items-center gap-3 py-2">
+                    <div class="text-center" style="width: 90px;">
+                        <div class="small fw-bold" th:text="${m.player.win} ? '승리' : '패배'">승리</div>
+                        <div class="small text-muted" th:text="${m.queueType}">420</div>
+                        <div class="small text-muted" th:text="${m.duration}">30:00</div>
+                        <div class="small text-muted" th:text="${m.playedAt}">2026-01-01</div>
+                    </div>
 
-            <div class="d-flex flex-column gap-1">
-                <img th:if="${m.player.spell1ImageUrl}" th:src="${m.player.spell1ImageUrl}" width="20" height="20"
-                     alt="스펠1">
-                <img th:if="${m.player.spell2ImageUrl}" th:src="${m.player.spell2ImageUrl}" width="20" height="20"
-                     alt="스펠2">
-            </div>
+                    <img th:if="${m.player.championImageUrl}" th:src="${m.player.championImageUrl}" width="48" height="48"
+                         class="rounded" th:alt="${m.player.championName}">
 
-            <div class="d-flex flex-column gap-1">
-                <img th:if="${m.player.keystoneIconUrl}" th:src="${m.player.keystoneIconUrl}" width="20" height="20"
-                     alt="핵심 룬">
-                <img th:if="${m.player.secondaryStyleIconUrl}" th:src="${m.player.secondaryStyleIconUrl}" width="20"
-                     height="20" alt="보조 룬 계열">
-            </div>
+                    <div class="d-flex flex-column gap-1">
+                        <img th:if="${m.player.spell1ImageUrl}" th:src="${m.player.spell1ImageUrl}" width="20" height="20"
+                             alt="스펠1">
+                        <img th:if="${m.player.spell2ImageUrl}" th:src="${m.player.spell2ImageUrl}" width="20" height="20"
+                             alt="스펠2">
+                    </div>
 
-            <div style="width: 90px;">
-                <div th:text="${m.player.championName}" class="small fw-bold">Champion</div>
-                <div th:text="${m.player.kills} + ' / ' + ${m.player.deaths} + ' / ' + ${m.player.assists}">0 / 0 / 0</div>
-            </div>
+                    <div class="d-flex flex-column gap-1">
+                        <img th:if="${m.player.keystoneIconUrl}" th:src="${m.player.keystoneIconUrl}" width="20" height="20"
+                             alt="핵심 룬">
+                        <img th:if="${m.player.secondaryStyleIconUrl}" th:src="${m.player.secondaryStyleIconUrl}" width="20"
+                             height="20" alt="보조 룬 계열">
+                    </div>
 
-            <div class="d-flex gap-1">
-                <div th:each="item : ${m.player.itemImageUrls}"
-                     class="bg-body-secondary rounded" style="width: 28px; height: 28px;">
-                    <img th:if="${item}" th:src="${item}" width="28" height="28" class="rounded" alt="아이템">
+                    <div style="width: 90px;">
+                        <div th:text="${m.player.championName}" class="small fw-bold">Champion</div>
+                        <div th:text="${m.player.kills} + ' / ' + ${m.player.deaths} + ' / ' + ${m.player.assists}">0 / 0 / 0</div>
+                    </div>
+
+                    <div class="d-flex gap-1">
+                        <div th:each="item : ${m.player.itemImageUrls}"
+                             class="bg-body-secondary rounded" style="width: 28px; height: 28px;">
+                            <img th:if="${item}" th:src="${item}" width="28" height="28" class="rounded" alt="아이템">
+                        </div>
+                    </div>
                 </div>
+            </a>
+        </div>
+
+        <div class="tab-pane fade" id="championStatsPane" role="tabpanel">
+            <p th:if="${championStats.games == 0}" class="text-muted">랭크/드래프트 매치 기록이 없습니다.</p>
+            <div th:unless="${championStats.games == 0}">
+                <p th:text="${championStats.games} + '게임 기준 · 승률 ' + ${championStats.overallWinRate}"></p>
+                <div class="mb-3">
+                    <span th:each="w : ${championStats.recentForm}" class="badge me-1"
+                          th:classappend="${w} ? 'bg-primary' : 'bg-danger'" th:text="${w} ? 'W' : 'L'">W</span>
+                </div>
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>챔피언</th><th>게임</th><th>승률</th><th>KDA</th></tr></thead>
+                    <tbody>
+                    <tr th:each="c : ${championStats.perChampion}">
+                        <td class="d-flex align-items-center gap-2">
+                            <img th:if="${c.championImageUrl}" th:src="${c.championImageUrl}" width="24" height="24"
+                                 class="rounded" alt="챔피언">
+                            <span th:text="${c.championName}">Champion</span>
+                        </td>
+                        <td th:text="${c.games}">0</td>
+                        <td th:text="${c.winRate}">0%</td>
+                        <td th:text="${c.avgKda}">0.00</td>
+                    </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
-    </a>
+
+        <div class="tab-pane fade" id="tierHistoryPane" role="tabpanel">
+            <p id="tierHistoryEmpty" class="text-muted" style="display: none;">티어 변동 기록이 없습니다.</p>
+            <canvas id="tierHistoryChart" height="120"></canvas>
+        </div>
+    </div>
 </main>
+<!-- 이 화면에서만 쓰여서 공용 layout.html이 아니라 여기서 직접 로드(bootstrap.bundle.min.js는
+     nav-tabs의 data-bs-toggle 동작에, chart.js는 아래 티어 이력 차트에 필요) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script th:inline="javascript">
     /*<![CDATA[*/
     const gameName = /*[[${summoner.gameName}]]*/ '';
@@ -109,6 +159,39 @@
                 .catch(() => clearInterval(interval));
         }, 3000);
     }
+
+    // 티어 이력 차트 (Phase 3 Task 4) - 이 화면에서만 쓰여서 공용 layout.html이 아니라 여기서 직접
+    // 로드(다른 페이지까지 Chart.js를 끌고 갈 필요 없음). category 축(문자열 라벨) 사용 -
+    // type:'time' 축은 별도 date-adapter 스크립트가 더 필요해서 일부러 피함.
+    fetch(`/api/summoners/${summonerId}/tier-history`)
+        .then(r => r.json())
+        .then(history => {
+            if (history.length === 0) {
+                document.getElementById('tierHistoryChart').style.display = 'none';
+                document.getElementById('tierHistoryEmpty').style.display = 'block';
+                return;
+            }
+            const labels = history.map(h => new Date(h.recordedAt).toLocaleDateString('ko-KR'));
+            const tooltipLabels = history.map(h => `${h.tier} ${h.rank} ${h.leaguePoints}LP`);
+            new Chart(document.getElementById('tierHistoryChart'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: '티어 추이', data: history.map(h => h.score),
+                        borderColor: '#0d6efd', backgroundColor: '#0d6efd', tension: 0.2,
+                    }],
+                },
+                options: {
+                    plugins: {
+                        legend: {display: false},
+                        tooltip: {callbacks: {label: ctx => tooltipLabels[ctx.dataIndex]}},
+                    },
+                    // score는 상대적 추이 확인용 값이라(TierScore) 축 눈금 자체는 의미 없음 - 숨김.
+                    scales: {y: {ticks: {display: false}}},
+                },
+            });
+        });
     /*]]>*/
 </script>
 </body>

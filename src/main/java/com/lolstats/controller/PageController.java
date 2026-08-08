@@ -3,8 +3,11 @@ package com.lolstats.controller;
 import com.lolstats.domain.Match;
 import com.lolstats.domain.MatchParticipant;
 import com.lolstats.domain.Summoner;
+import com.lolstats.dto.ChampionStatRow;
+import com.lolstats.dto.ChampionStatsResponse;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
+import com.lolstats.service.ChampionStatsService;
 import com.lolstats.service.DataDragonService;
 import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
@@ -36,6 +39,7 @@ public class PageController {
     private final SummonerService summonerService;
     private final MatchService matchService;
     private final MatchCollectionQueue matchCollectionQueue;
+    private final ChampionStatsService championStatsService;
     private final DataDragonService dataDragonService;
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
@@ -45,6 +49,7 @@ public class PageController {
             SummonerService summonerService,
             MatchService matchService,
             MatchCollectionQueue matchCollectionQueue,
+            ChampionStatsService championStatsService,
             DataDragonService dataDragonService,
             MatchRepository matchRepository,
             MatchParticipantRepository matchParticipantRepository,
@@ -52,6 +57,7 @@ public class PageController {
         this.summonerService = summonerService;
         this.matchService = matchService;
         this.matchCollectionQueue = matchCollectionQueue;
+        this.championStatsService = championStatsService;
         this.dataDragonService = dataDragonService;
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
@@ -86,6 +92,9 @@ public class PageController {
         // Static notice only (no JS polling yet) - PHASE2_PLAN.md Task 3 스코프는 API 필드까지,
         // 화면 폴링은 별도 태스크로 미룸.
         model.addAttribute("collecting", matchCollectionQueue.isCollecting(summoner.getPuuid()));
+        // SSR이라 챔피언 아이콘(ddragon) 붙이기 편함 - 티어 이력은 아이콘이 필요 없어 클라이언트
+        // 사이드에서 이미 검증된 /api/summoners/{id}/tier-history를 그대로 fetch(profile.html).
+        model.addAttribute("championStats", toChampionStatsView(championStatsService.stats(summoner.getPuuid())));
         return "profile";
     }
 
@@ -148,6 +157,28 @@ public class PageController {
         return "%.0f%%".formatted(100.0 * wins / (wins + losses));
     }
 
+    private ChampionStatsView toChampionStatsView(ChampionStatsResponse stats) {
+        List<ChampionStatRowView> rows = stats.perChampion().stream()
+                .map(this::toChampionStatRowView)
+                .toList();
+        return new ChampionStatsView(
+                stats.games(), winRatePct(stats.games(), stats.overallWinRate()), stats.recentForm(), rows);
+    }
+
+    private ChampionStatRowView toChampionStatRowView(ChampionStatRow row) {
+        String championName = dataDragonService.getChampion(row.championId())
+                .map(DataDragonService.ChampionInfo::name).orElse("?");
+        String championImageUrl = dataDragonService.getChampion(row.championId())
+                .map(DataDragonService.ChampionInfo::imageUrl).orElse(null);
+        return new ChampionStatRowView(
+                championName, championImageUrl, row.games(), winRatePct(row.games(), row.winRate()),
+                "%.2f".formatted(row.avgKda()));
+    }
+
+    private String winRatePct(int games, double ratio) {
+        return games == 0 ? "-" : "%.0f%%".formatted(ratio * 100);
+    }
+
     private String formatDuration(Integer seconds) {
         if (seconds == null) {
             return "-";
@@ -164,5 +195,13 @@ public class PageController {
             Integer kills, Integer deaths, Integer assists, Boolean win,
             String spell1ImageUrl, String spell2ImageUrl, List<String> itemImageUrls,
             String keystoneIconUrl, String secondaryStyleIconUrl) {
+    }
+
+    public record ChampionStatsView(
+            int games, String overallWinRate, List<Boolean> recentForm, List<ChampionStatRowView> perChampion) {
+    }
+
+    public record ChampionStatRowView(
+            String championName, String championImageUrl, int games, String winRate, String avgKda) {
     }
 }

@@ -81,14 +81,15 @@ Task 1과 Task 2는 서로 독립(하나는 읽기 전용 집계, 하나는 검�
 
 **완료 기준 — 확인됨**: 실제 소환사(id 1)로 라이브 호출 → `[{"tier":"CHALLENGER","rank":"I","leaguePoints":2812,"score":6412}]`(9×400+2812, apex라 division 보너스 없음 — 수기 계산과 일치). 존재하지 않는 id는 404. 전체 스위트 87개 통과.
 
-### 4. 화면 — 챔피언 통계 탭 + 티어 이력 탭 — 6~8h
+### 4. 화면 — 챔피언 통계 탭 + 티어 이력 탭 — 6~8h ✅ 완료(브라우저 시각 확인 보류 — 아래 참고)
 
-- [ ] `profile.html`에 Bootstrap `nav-tabs` 신규 도입(현재 프로필 화면엔 탭 구조 자체가 없음 — 매치 목록만 단일 섹션) — 매치 목록 / 챔피언 통계 / 티어 이력 3탭
-- [ ] 챔피언 통계 탭: 전체 승률, 최근 폼(W/L 아이콘 나열), 챔피언별 표(ddragon 아이콘 재사용 — Phase 1에 이미 연동됨) — **"N게임 기준" 표기 필수**(PROJECT_PLAN.md §4 Phase 3 원문)
-- [ ] **티어 이력 탭 — 라인 차트(§5 확정)**: `Chart.js` CDN `<script>` 추가(`layout.html` — Bootstrap도 같은 jsdelivr CDN 패턴, 신규 빌드 도구 불필요). x축 `recordedAt`, y축 Task 3의 `score`, 포인트 툴팁에 원본 tier/rank/LP 표시(예: "GOLD II 45LP"). 데이터 없으면(크롤러로만 채워진 소환사) 빈 상태 문구
-- [ ] `PageController` 수정 — 프로필 페이지 로드 시 Task 1/3 서비스 호출해 모델에 추가(SSR 그대로, 탭 전환도 서버 렌더링 한 페이지 안에서 처리 — Chart.js 초기화만 인라인 `<script>`로, 신규 프론트 프레임워크 도입 없음)
+- [x] `profile.html`에 Bootstrap `nav-tabs` 신규 도입(현재 프로필 화면엔 탭 구조 자체가 없음 — 매치 목록만 단일 섹션) — 매치 목록 / 챔피언 통계 / 티어 이력 3탭. `nav-tabs`의 `data-bs-toggle` 동작에 필요한 `bootstrap.bundle.min.js`(JS+Popper)가 이전엔 프로젝트 어디에도 로드된 적 없어서(`layout.html`엔 CSS만) 이 화면에 신규 추가
+- [x] 챔피언 통계 탭: 전체 승률, 최근 폼(W/L 아이콘 나열), 챔피언별 표(ddragon 아이콘 재사용 — Phase 1에 이미 연동됨) — **"N게임 기준" 표기** 완료
+- [x] **티어 이력 탭 — 라인 차트(§5 확정)**: `Chart.js` CDN `<script>` 추가(계획과 달리 `layout.html`이 아니라 `profile.html`에서 직접 로드 — 이 화면에서만 쓰여서 다른 페이지까지 끌고 갈 필요 없음). x축 `recordedAt`, y축 Task 3의 `score`(눈금 자체는 상대값이라 숨김), 포인트 툴팁에 원본 tier/rank/LP 표시. 데이터 없으면 빈 상태 문구
+- [x] `PageController` 수정 — 프로필 페이지 로드 시 `ChampionStatsService` 호출해 모델에 추가(SSR). 티어 이력은 이미 Task 3에서 검증된 `/api/summoners/{id}/tier-history`를 클라이언트 사이드에서 그대로 fetch(서버 모델에 안 실음 — 화면 전용 API라 중복 조회 불필요)
 
-**완료 기준**: 실제 소환사 프로필에서 탭 전환 확인, 티어 이력 탭에서 실제 라인 차트가 렌더링되는 것 확인(브라우저로 라이브 확인 필요 — Chart.js 렌더링은 코드 리뷰만으론 검증 안 됨), 매치 0건/티어 이력 0건 케이스에서 빈 상태 문구 확인.
+**완료 기준 — 부분 확인됨**: `/summoners/Grizzly/KR3` 실제 응답(HTTP 200)에 3개 탭 마크업(`data-bs-toggle="tab"`, `championStatsPane`, `tierHistoryPane`, `tierHistoryChart` 캔버스)과 `bootstrap.bundle.min.js`/`chart.umd.min.js` 로드 태그가 모두 존재함을 서버 사이드에서 확인. 같은 소환사(id 1)로 `/api/summoners/1/champion-stats`(games=36, perChampion 14종) · `/api/summoners/1/tier-history`(1건, score=6412) 둘 다 라이브 200 응답 확인 — 화면이 그리는 데이터 자체는 두 API 모두 Task 1/3에서 이미 검증된 값과 일치.
+**미확인(환경 제약)**: 실제 브라우저에서 탭 클릭이 전환되는지, Chart.js가 실제로 라인을 그리는지는 claude-in-chrome으로 확인 시도 — `http://127.0.0.1:8080`과 `http://localhost:8080` 둘 다 브라우저 확장이 이 세션의 개발 서버가 아닌 전혀 다른 서버(각각 다른 페이지)로 연결됨(네트워크 경로가 이 세션의 Bash/PowerShell 프로세스와 분리된 것으로 보임 — 툴링 환경 한계, 코드 결함 아님). Bootstrap nav-tabs/Chart.js 둘 다 표준적인 CDN 사용(커스텀 JS 로직 없음)이라 리스크는 낮다고 판단하되, 사용자가 실제 브라우저로 최종 확인 권장.
 
 ### 5. 테스트 정리 — 1~2h
 
@@ -103,10 +104,10 @@ Task 1과 Task 2는 서로 독립(하나는 읽기 전용 집계, 하나는 검�
 
 PROJECT_PLAN.md §4 Phase 3 체크리스트 전체 충족 + 아래 확인:
 
-1. [ ] 승률/최근 폼/챔피언별 통계가 랭크·드래프트 큐만 집계(ARAM 등 섞인 소환사로 확인) + "N게임 기준" 화면 표기
-2. [ ] 같은 소환사를 반복 검색해도 TIER_HISTORY가 중복 적재되지 않음, 티어/LP 변화 시에만 적재
-3. [ ] 프로필 화면에서 챔피언 통계 탭 + 티어 이력 라인 차트 둘 다 실제로 눈으로 확인 가능
-4. [ ] 매치 목록/상세 화면에 큐 타입이 raw id("420") 대신 사람이 읽을 수 있는 라벨("솔로랭크")로 표시됨
+1. [x] 승률/최근 폼/챔피언별 통계가 랭크·드래프트 큐만 집계(ARAM 등 섞인 소환사로 확인) + "N게임 기준" 화면 표기
+2. [x] 같은 소환사를 반복 검색해도 TIER_HISTORY가 중복 적재되지 않음, 티어/LP 변화 시에만 적재
+3. [ ] 프로필 화면에서 챔피언 통계 탭 + 티어 이력 라인 차트 둘 다 실제로 눈으로 확인 가능 — **미완**: API/마크업 레벨은 확인됐으나 브라우저 렌더링 자체는 툴링 환경 제약으로 미확인(Task 4 완료 기준 참고), 사용자 수동 확인 필요
+4. [x] 매치 목록/상세 화면에 큐 타입이 raw id("420") 대신 사람이 읽을 수 있는 라벨("솔로랭크")로 표시됨
 
 ### 실측 트래킹
 
