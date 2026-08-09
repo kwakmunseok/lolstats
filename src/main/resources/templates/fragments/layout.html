@@ -8,9 +8,21 @@
 </head>
 <body>
 <nav th:fragment="nav" class="navbar navbar-dark bg-dark mb-4">
-    <div class="container">
-        <a class="navbar-brand" href="/">LoL Stats</a>
+    <div class="container d-flex align-items-center">
+        <a class="navbar-brand me-auto" href="/">LoL Stats</a>
+        <div class="d-flex align-items-center gap-2">
+            <span th:if="${currentUser}" class="text-white-50 small" th:text="${currentUser.nickname} + '님'">닉네임님</span>
+            <a th:if="${currentUser}" href="/mypage" class="btn btn-outline-light btn-sm">마이페이지</a>
+            <button th:if="${currentUser}" id="navLogoutBtn" type="button" class="btn btn-outline-light btn-sm">로그아웃</button>
+            <a th:unless="${currentUser}" href="/login" class="btn btn-outline-light btn-sm">로그인</a>
+            <a th:unless="${currentUser}" href="/signup" class="btn btn-light btn-sm">회원가입</a>
+        </div>
     </div>
+    <script th:if="${currentUser}">
+        document.getElementById('navLogoutBtn').addEventListener('click', () => {
+            fetch('/api/auth/logout', {method: 'POST'}).then(() => window.location.href = '/');
+        });
+    </script>
 </nav>
 </body>
 </html>

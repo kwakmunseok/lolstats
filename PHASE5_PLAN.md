@@ -110,13 +110,20 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 
 **완료 기준 — 확인됨(라이브)**: 비로그인 검색 `200`(에러 없음, 기록 안 됨) → 로그인 후 같은 소환사 검색 `200` → `/api/users/me/search-history` 조회 시 1건 확인 → 같은 소환사 재검색 후 다시 조회해도 여전히 1건(중복 없음, dedup 확인) → 비로그인으로 `/api/users/me/favorites`·`/api/users/me/search-history` 둘 다 여전히 `401`(익명 인증 비활성화가 기존 Task 2/3 동작을 깨지 않았음 확인) → Task 3의 즐겨찾기 추가(CSRF 헤더 포함)도 정상 동작 확인 → 공개 화면 라우트도 정상. 유닛 테스트 3개 신규 + 전체 스위트 112개 통과.
 
-#### 5. 로그인/회원가입/마이페이지 화면 — 3~4h
+#### 5. 로그인/회원가입/마이페이지 화면 — 3~4h ✅ 완료
 
-- [ ] `login.html`/`signup.html` — Bootstrap 폼 컴포넌트 + vanilla JS + fetch(§3 화면 기술 선택 그대로)
-- [ ] `mypage.html` — 즐겨찾기 목록(제거 버튼) + 최근 검색 기록
-- [ ] nav에 로그인 상태 표시(로그인/로그아웃 버튼 전환) — 쿠키 기반이라 SSR 시점에 판별 가능
-- [ ] 프로필 화면에 즐겨찾기 토글 버튼 추가(로그인 시에만 노출)
-- [ ] 화면 검증은 Phase 3 Task 4 관행대로 브라우저(Playwright)로 직접 확인 — 신규 API는 Task 1~4에서 이미 유닛 테스트로 커버
+- [x] `login.html`/`signup.html` — Bootstrap 폼 컴포넌트 + vanilla JS + fetch(§3 화면 기술 선택 그대로). 회원가입 성공 시 이메일 인증 이월(§1)이라 곧바로 `/api/auth/login` 호출해 자동 로그인 처리
+- [x] `mypage.html` — 즐겨찾기 목록(제거 버튼) + 최근 검색 기록, 둘 다 SSR(`PageController`가 `FavoriteService`/`SearchHistoryService`를 직접 호출 — Task 1~4에서 이미 검증된 API 응답 DTO `FavoriteResponse`/`SearchHistoryResponse`를 그대로 모델에 실음, 화면 전용 View 레코드 새로 안 만듦)
+- [x] nav에 로그인 상태 표시 — `CurrentUserModelAdvice`(신규, `@ControllerAdvice(assignableTypes = PageController.class)`)가 `@AuthenticationPrincipal Long userId`로 매 PageController 요청마다 "currentUser" 모델 속성을 채움. API 컨트롤러엔 안 붙임(JSON 응답엔 의미 없고 요청마다 불필요한 DB 조회만 늘어남)
+- [x] 프로필 화면에 즐겨찾기 토글 버튼 추가(로그인 시에만 노출) — `FavoriteService.isFavorited()` 신규 추가
+- [x] 화면 검증은 Phase 3 Task 4 관행대로 로컬 Playwright로 직접 확인
+
+**진행 중 발견/수정한 실제 버그 2건(계획엔 없던 것 — 라이브 검증이 아니었으면 못 잡았을 것들)**:
+1. **`ApiExceptionHandler`가 실제로 안 불림**: Task 6에서 다룸(위 참고) — `@Order` 안 걸면 Boot 내장 처리가 먼저 가로챔
+2. **검색 기록이 실제 화면 검색 경로에서 전혀 안 쌓임**: Task 4에서 `SummonerController.getByRiotId`(JSON API)에만 기록 로직을 넣었는데, 실제 웹사이트의 검색 흐름(메인 화면 검색 → `/summoners/{gameName}/{tagLine}` 페이지로 바로 이동)은 `PageController.profile()`이 `summonerService.findOrFetch()`를 **직접** 호출해서 그 API 컨트롤러를 아예 안 거침. Task 4의 라이브 검증은 API 엔드포인트를 직접 호출해서 확인했었기 때문에(정상 동작처럼 보였음) 이 갭을 못 잡았고, 이번 Task 5의 Playwright 검증(로그인 → 프로필 페이지 방문 → 마이페이지에서 검색 기록 확인)에서 마이페이지가 계속 비어있는 걸 보고 발견함. `PageController.profile()`에도 동일한 `searchHistoryService.record()` 호출 추가로 해결
+3. **로그아웃 후 nav가 계속 로그인 상태로 보이는 것처럼 보였던 문제**: 실제로는 버그가 아니라 Playwright 테스트 스크립트의 캐시 재사용 문제였음(같은 URL `/`을 같은 브라우저 컨텍스트에서 두 번째 방문 시 디스크 캐시 재사용) — raw HTTP로 재확인한 결과 서버는 로그아웃 시 access_token/refresh_token/XSRF-TOKEN 쿠키 전부 `Max-Age=0`으로 정확히 지우고 있었음. 참고로만 기록: 실서비스에서도 이론상 동일한 캐시 재사용이 발생하면 로그아웃 직후 새로고침 없이 뒤로가기 등으로 nav가 잠깐 "로그인된 것처럼" 보일 수 있으나, `/mypage` 등 실제 보호된 동작은 서버 쪽에서 쿠키 기준으로 별도 검증되므로 화면 표시 지연일 뿐 실제 인가 우회는 아님 — README 트러블슈팅감으로 남겨둠
+
+**완료 기준 — 확인됨(Playwright, 로컬)**: 회원가입 → 자동 로그인 → `/`로 리다이렉트, nav에 닉네임 표시(`/`, 프로필 페이지, `/mypage` 세 군데 모두 — `CurrentUserModelAdvice` 스코핑 확인) → 프로필 화면 즐겨찾기 버튼 클릭 시 "☆ 즐겨찾기" → "★ 즐겨찾기 해제" 토글 → 마이페이지에 방금 추가한 즐겨찾기 + 방문한 소환사 검색 기록 둘 다 표시 → 즐겨찾기 제거 버튼 클릭 시 목록에서 사라짐 → 로그아웃 시 nav가 로그인/회원가입 버튼으로 전환 → 로그아웃 후 `/mypage` 접근 시 `/login`으로 리다이렉트(비로그인 시 500 아님 확인) → 비로그인 상태로 `/mypage` 직접 접근해도 리다이렉트. 콘솔 에러 0건. 전체 스위트 116개 통과.
 
 #### 6. 전 폼 Validation 통합 — 2~3h ✅ 완료 (Task 5보다 먼저 처리 — 로그인/가입 폼이 필드별 에러 메시지에 의존하므로 순서 변경)
 
@@ -173,7 +180,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 2. JWT 로그인/로그아웃/재발급 | 5~6h | 2026-08-08 | CSRF 토큰 구현은 Task 3로 이동(위 §5 참고), 그만큼 Task 2 실작업은 예상보다 가벼웠고 Task 3가 무거워짐 |
 | 3. 즐겨찾기 API | 1.5~2h | 2026-08-08 | CSRF 토큰 구현이 Task 2에서 이관돼 실작업은 3~4h로 예상보다 늘어남 |
 | 4. 검색 기록 저장/조회 | 1.5~2h | 2026-08-08 | 예상대로 가벼웠음 — Task 2의 JwtAuthenticationFilter가 이미 선택적 인증을 공짜로 제공 |
-| 5. 화면(로그인/회원가입/마이페이지) | 3~4h | | |
+| 5. 화면(로그인/회원가입/마이페이지) | 3~4h | 2026-08-10 | 검색 기록이 실제 화면 경로에서 안 쌓이던 버그(Task 4 갭)를 여기서 발견·수정 |
 | 6. Validation 통합 | 2~3h | 2026-08-10 | Task 5보다 먼저 진행. DTO 애노테이션은 이미 있어서 실작업은 `@Order` 우선순위 이슈 하나 잡는 게 대부분 |
 | 7. 테스트 커버리지 보강 | 1~2h | | |
 | 8. Swagger | 1~2h | | |

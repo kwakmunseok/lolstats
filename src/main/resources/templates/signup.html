@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='회원가입 - LoL Stats')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+<main class="container" style="max-width: 400px;">
+    <h1 class="mb-4 text-center h4">회원가입</h1>
+
+    <form id="signupForm">
+        <div class="mb-3">
+            <label for="email" class="form-label">이메일</label>
+            <input type="email" id="email" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label for="password" class="form-label">비밀번호</label>
+            <input type="password" id="password" class="form-control" minlength="8" required>
+            <div class="form-text">8자 이상</div>
+        </div>
+        <div class="mb-3">
+            <label for="nickname" class="form-label">닉네임</label>
+            <input type="text" id="nickname" class="form-control" minlength="2" maxlength="20" required>
+        </div>
+        <div class="form-check mb-3">
+            <input type="checkbox" id="agreedToTerms" class="form-check-input" required>
+            <label for="agreedToTerms" class="form-check-label">이용약관에 동의합니다</label>
+        </div>
+        <div id="signupError" class="alert alert-danger d-none"></div>
+        <button type="submit" class="btn btn-primary w-100">회원가입</button>
+    </form>
+    <p class="text-center text-muted small mt-3">
+        이미 계정이 있으신가요? <a href="/login">로그인</a>
+    </p>
+</main>
+<script>
+    document.getElementById('signupForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const errorBox = document.getElementById('signupError');
+        errorBox.classList.add('d-none');
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+
+        fetch('/api/auth/signup', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                email, password,
+                nickname: document.getElementById('nickname').value,
+                agreedToTerms: document.getElementById('agreedToTerms').checked,
+            }),
+        }).then(async (res) => {
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                errorBox.textContent = body.detail || '회원가입에 실패했습니다';
+                errorBox.classList.remove('d-none');
+                return;
+            }
+            // 이메일 인증 이월(PHASE5_PLAN.md §1) - 가입 즉시 활성이라 곧바로 로그인 처리
+            return fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email, password}),
+            }).then((loginRes) => {
+                window.location.href = loginRes.ok ? '/' : '/login';
+            });
+        }).catch(() => {
+            errorBox.textContent = '회원가입에 실패했습니다';
+            errorBox.classList.remove('d-none');
+        });
+    });
+</script>
+</body>
+</html>

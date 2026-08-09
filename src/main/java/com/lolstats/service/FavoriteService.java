@@ -32,6 +32,10 @@ public class FavoriteService {
         return favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId);
     }
 
+    public boolean isFavorited(Long userId, Long summonerId) {
+        return favoriteRepository.findByUserIdAndSummonerId(userId, summonerId).isPresent();
+    }
+
     // Idempotent - a favorite toggle button in the UI shouldn't need to special-case "already
     // favorited" as an error.
     public void add(Long userId, Long summonerId) {

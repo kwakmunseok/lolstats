@@ -19,7 +19,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -101,6 +103,21 @@ class FavoriteServiceTest {
         service.remove(1L, 5L);
 
         verify(favoriteRepository, never()).delete(any());
+    }
+
+    @Test
+    void isFavorited_existing_returnsTrue() {
+        when(favoriteRepository.findByUserIdAndSummonerId(1L, 5L))
+                .thenReturn(Optional.of(Favorite.builder().id(9L).build()));
+
+        assertTrue(service.isFavorited(1L, 5L));
+    }
+
+    @Test
+    void isFavorited_notFavorited_returnsFalse() {
+        when(favoriteRepository.findByUserIdAndSummonerId(1L, 5L)).thenReturn(Optional.empty());
+
+        assertFalse(service.isFavorited(1L, 5L));
     }
 
     @Test

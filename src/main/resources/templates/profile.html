@@ -17,6 +17,9 @@
                 <h1 class="h4 mb-1" th:text="${summoner.gameName} + '#' + ${summoner.tagLine}">GameName#TAG</h1>
                 <div class="text-muted">레벨 <span th:text="${summoner.summonerLevel}">1</span></div>
             </div>
+            <button th:if="${currentUser}" id="favoriteToggleBtn" type="button" class="btn btn-sm"
+                    th:classappend="${isFavorited} ? 'btn-warning' : 'btn-outline-warning'"
+                    th:text="${isFavorited} ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기'">☆ 즐겨찾기</button>
             <div class="text-center" th:if="${summoner.tier}">
                 <img th:src="${tierEmblemUrl}" width="56" height="56" alt="티어 엠블럼">
                 <div th:text="${summoner.tier} + ' ' + ${summoner.rank} + ' ' + ${summoner.leaguePoints} + 'LP'">
@@ -132,6 +135,7 @@
     const tagLine = /*[[${summoner.tagLine}]]*/ '';
     const summonerId = /*[[${summoner.id}]]*/ 0;
     const collecting = /*[[${collecting}]]*/ false;
+    let isFavorited = /*[[${isFavorited}]]*/ false;
 
     let recent = JSON.parse(localStorage.getItem('recentSearches') || '[]');
     recent = recent.filter(r => !(r.gameName === gameName && r.tagLine === tagLine));
@@ -158,6 +162,28 @@
                 })
                 .catch(() => clearInterval(interval));
         }, 3000);
+    }
+
+    // 즐겨찾기 토글 (Phase 5 Task 5) - CSRF는 /api/users/me/** 대상 이중 제출 쿠키 필터
+    // (CsrfDoubleSubmitFilter, Task 3)라 XSRF-TOKEN 쿠키 값을 헤더로 그대로 되돌려주면 됨.
+    const favoriteBtn = document.getElementById('favoriteToggleBtn');
+    if (favoriteBtn) {
+        favoriteBtn.addEventListener('click', () => {
+            const xsrfToken = document.cookie.match(/(?:^| )XSRF-TOKEN=([^;]+)/)?.[1];
+            const method = isFavorited ? 'DELETE' : 'POST';
+            const url = isFavorited ? `/api/users/me/favorites/${summonerId}` : '/api/users/me/favorites';
+            fetch(url, {
+                method,
+                headers: {'Content-Type': 'application/json', 'X-XSRF-TOKEN': decodeURIComponent(xsrfToken || '')},
+                body: isFavorited ? undefined : JSON.stringify({summonerId}),
+            }).then((res) => {
+                if (!res.ok) return;
+                isFavorited = !isFavorited;
+                favoriteBtn.textContent = isFavorited ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기';
+                favoriteBtn.classList.toggle('btn-warning', isFavorited);
+                favoriteBtn.classList.toggle('btn-outline-warning', !isFavorited);
+            });
+        });
     }
 
     // 티어 이력 차트 (Phase 3 Task 4) - 이 화면에서만 쓰여서 공용 layout.html이 아니라 여기서 직접

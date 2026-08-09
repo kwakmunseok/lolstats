@@ -5,17 +5,22 @@ import com.lolstats.domain.MatchParticipant;
 import com.lolstats.domain.Summoner;
 import com.lolstats.dto.ChampionStatRow;
 import com.lolstats.dto.ChampionStatsResponse;
+import com.lolstats.dto.FavoriteResponse;
+import com.lolstats.dto.SearchHistoryResponse;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
 import com.lolstats.service.ChampionStatsService;
 import com.lolstats.service.DataDragonService;
+import com.lolstats.service.FavoriteService;
 import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
+import com.lolstats.service.SearchHistoryService;
 import com.lolstats.service.SummonerService;
 import com.lolstats.service.TierEmblems;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +49,8 @@ public class PageController {
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
     private final ObjectMapper objectMapper;
+    private final FavoriteService favoriteService;
+    private final SearchHistoryService searchHistoryService;
 
     public PageController(
             SummonerService summonerService,
@@ -53,7 +60,9 @@ public class PageController {
             DataDragonService dataDragonService,
             MatchRepository matchRepository,
             MatchParticipantRepository matchParticipantRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            FavoriteService favoriteService,
+            SearchHistoryService searchHistoryService) {
         this.summonerService = summonerService;
         this.matchService = matchService;
         this.matchCollectionQueue = matchCollectionQueue;
@@ -62,6 +71,8 @@ public class PageController {
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
         this.objectMapper = objectMapper;
+        this.favoriteService = favoriteService;
+        this.searchHistoryService = searchHistoryService;
     }
 
     @GetMapping("/")
@@ -69,9 +80,44 @@ public class PageController {
         return "main";
     }
 
+    @GetMapping("/login")
+    public String login(@AuthenticationPrincipal Long userId) {
+        return userId != null ? "redirect:/" : "login";
+    }
+
+    @GetMapping("/signup")
+    public String signup(@AuthenticationPrincipal Long userId) {
+        return userId != null ? "redirect:/" : "signup";
+    }
+
+    // /mypage is a permitAll route (PHASE5_PLAN.md Task 4 - anonymous auth is disabled, so
+    // unauthenticated here means userId is simply null, not a 401) - this redirect is the only
+    // guard, so a null check before touching favoriteService/searchHistoryService is required,
+    // not optional.
+    @GetMapping("/mypage")
+    public String mypage(@AuthenticationPrincipal Long userId, Model model) {
+        if (userId == null) {
+            return "redirect:/login";
+        }
+        model.addAttribute("favorites", favoriteService.list(userId).stream().map(FavoriteResponse::from).toList());
+        model.addAttribute("history", searchHistoryService.list(userId).stream().map(SearchHistoryResponse::from).toList());
+        return "mypage";
+    }
+
     @GetMapping("/summoners/{gameName}/{tagLine}")
-    public String profile(@PathVariable String gameName, @PathVariable String tagLine, Model model) {
+    public String profile(
+            @PathVariable String gameName, @PathVariable String tagLine,
+            @AuthenticationPrincipal Long userId, Model model) {
         Summoner summoner = summonerService.findOrFetch(gameName, tagLine);
+        // Search history (Phase 5 Task 4) has to be recorded here, not just in
+        // SummonerController's JSON API - this page route calls summonerService directly and
+        // never goes through that controller, so a search made through the actual website (the
+        // main page's search form navigates straight here) would otherwise never be recorded.
+        // Caught by Playwright verification (Task 5): mypage showed an empty history list after
+        // visiting a profile page while logged in, which is what surfaced the gap.
+        if (userId != null) {
+            searchHistoryService.record(userId, summoner);
+        }
         // Same trigger point as SummonerController's API route - response uses whatever's
         // already cached, missing matches go to the background queue (Phase 2 Task 3).
         MatchService.CollectionPlan plan = matchService.planCollection(summoner.getPuuid());
@@ -95,6 +141,8 @@ public class PageController {
         // SSR이라 챔피언 아이콘(ddragon) 붙이기 편함 - 티어 이력은 아이콘이 필요 없어 클라이언트
         // 사이드에서 이미 검증된 /api/summoners/{id}/tier-history를 그대로 fetch(profile.html).
         model.addAttribute("championStats", toChampionStatsView(championStatsService.stats(summoner.getPuuid())));
+        // 즐겨찾기 토글 버튼(Phase 5 Task 5) - 비로그인이면 버튼 자체가 안 보이니 false로 충분.
+        model.addAttribute("isFavorited", userId != null && favoriteService.isFavorited(userId, summoner.getId()));
         return "profile";
     }
 
