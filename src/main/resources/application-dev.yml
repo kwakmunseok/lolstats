@@ -33,3 +33,9 @@ app:
   jwt:
     # 로컬 dev는 http라 Secure 쿠키면 브라우저가 아예 보내지 않음(application.yml 기본은 prod용 true).
     cookie-secure: false
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

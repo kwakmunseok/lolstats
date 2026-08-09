@@ -22,3 +22,11 @@ app:
     refresh-token-days: 14
     # prod은 HTTPS 전제(§9.3)라 Secure 쿠키 필수 - dev는 로컬 http라 false로 오버라이드(application-dev.yml).
     cookie-secure: true
+
+# 공개 서버에 API 문서 노출은 표준 트레이드오프(PHASE5_PLAN.md §5 미결 기본값) - dev 전용,
+# application-dev.yml에서만 true로 켬.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

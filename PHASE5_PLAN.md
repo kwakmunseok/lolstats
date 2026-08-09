@@ -139,10 +139,12 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 - [x] **점검하다 새로 찾은 진짜 갭 2건 — 회원가입/즐겨찾기 추가의 TOCTOU(check-then-act) 레이스**: `AuthService.signup()`과 `FavoriteService.add()` 둘 다 "중복 체크 → 저장" 순서라, 동시에 같은 요청이 두 번 들어오면 둘 다 체크를 통과한 뒤 DB unique 제약(email, (user_id, summoner_id))에서 하나가 걸려 `DataIntegrityViolationException`이 raw 500으로 새는 구조였음. 회원가입은 `409`로 변환, 즐겨찾기 추가는 애초에 멱등 설계 의도대로 조용히 무시(예외 삼킴) — 실제 동시 요청으로 재현은 안 했지만(단위 테스트로 예외를 강제 발생시켜 검증), 공개 회원가입 엔드포인트라 현실적으로 있을 수 있는 시나리오라 방치하지 않음
 - [x] `./gradlew test --rerun-tasks` 전체 통과 확인(캐시 아닌 실제 재실행) — **118개**
 
-#### 8. Swagger API 문서화 — 1~2h
+#### 8. Swagger API 문서화 — 1~2h ✅ 완료
 
-- [ ] `springdoc-openapi` 의존성 추가 — 기존 Phase 1~3 API(소환사/매치/통계/티어이력) + 이 Phase의 Auth/즐겨찾기 API 전부 자동 스캔 적용
-- [ ] **미결(§5)**: `/swagger-ui`를 prod에서도 열어둘지 — 학습 포트폴리오 성격이라 열어두는 쪽이 README 어필에 유리하지만, 공개 서버에 API 문서 노출은 표준 트레이드오프
+- [x] `springdoc-openapi-starter-webmvc-ui:3.1.0` 추가 — 버전 확인은 추측 대신 GitHub 릴리스 노트로 직접 확인(이 프로젝트가 2026-08-08 릴리스된 Spring Boot 4.1.0을 쓰는데, springdoc 3.1.0의 릴리스 노트(2026-08-01)에 정확히 "Upgrade Spring Boot to version 4.1.0"라고 명시돼 있어 버전 매칭 확정). 기존 Phase 1~5 API 전부 자동 스캔 적용 확인
+- [x] **미결(§5) 해소 — 기본값(dev 전용) 그대로 채택**: `application.yml`(기본)에 `springdoc.api-docs.enabled: false` / `swagger-ui.enabled: false`, `application-dev.yml`에서만 `true`로 오버라이드. `app.jwt.cookie-secure`가 이미 쓰던 것과 동일한 프로필 오버라이드 방식 재사용 — 별도 `@Profile` 빈이나 Security 경로 예외 처리 불필요
+
+**완료 기준 — 확인됨(라이브)**: `/v3/api-docs` 응답에 Phase 1~5 API **15개 경로** 전부 포함 확인(`/api/summoners/riot-id/...`, `/api/summoners/{id}/champion-stats`, `/api/summoners/{id}/tier-history`, `/api/matches/{id}`, `/api/auth/signup`, `/api/auth/login`, `/api/users/me/favorites` 등). `/swagger-ui/index.html` `200`. prod 비노출은 `cookie-secure`와 동일한 이미 검증된 프로필 오버라이드 메커니즘이라 별도로 prod 프로필 풀부팅까지는 안 함(전체 스위트는 여전히 118개 통과, dev 부팅도 정상).
 
 ### Track B (인프라 게이트)
 
@@ -184,7 +186,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 5. 화면(로그인/회원가입/마이페이지) | 3~4h | 2026-08-10 | 검색 기록이 실제 화면 경로에서 안 쌓이던 버그(Task 4 갭)를 여기서 발견·수정 |
 | 6. Validation 통합 | 2~3h | 2026-08-10 | Task 5보다 먼저 진행. DTO 애노테이션은 이미 있어서 실작업은 `@Order` 우선순위 이슈 하나 잡는 게 대부분 |
 | 7. 테스트 커버리지 보강 | 1~2h | 2026-08-10 | 회원가입/즐겨찾기 TOCTOU 레이스 컨디션 수정 2건 발견·수정 |
-| 8. Swagger | 1~2h | | |
+| 8. Swagger | 1~2h | 2026-08-10 | Boot 4.1.0과 정확히 매칭되는 springdoc 3.1.0 확인에 시간 씀(추측 대신 릴리스노트 확인) |
 | **Track A 소계** | **18~24h** | | |
 | 9. CI/CD (배포 라인 별도 카운트) | 2~3h | | §0 블로커 해소 후 착수 |
 | 10. README | 2~3h | | Track A+B 수렴 후 마무리 |
