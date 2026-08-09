@@ -43,4 +43,8 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// Default G1 heap reservation (~256m) can fail to mmap when the host's page file is
+	// under pressure (observed: "paging file too small" / G1 virtual space alloc failure).
+	// The suite doesn't need much heap - cap it well below what was failing to reserve.
+	maxHeapSize = '256m'
 }
