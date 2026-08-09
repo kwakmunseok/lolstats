@@ -40,10 +40,12 @@ Task 2: JWT 로그인/로그아웃/재발급
 Task 3: 즐겨찾기 API      Task 4: 최근 검색 기록 저장/조회
    └────────┬───────────┘
             ▼
-Task 5: 로그인/회원가입/마이페이지 화면
+Task 6: 전 폼 Validation 통합 (순서 변경 — Task 5보다 먼저.
+         로그인/가입 폼이 필드별 에러 메시지에 의존해서 먼저 해야
+         화면 JS를 두 번 안 건드림, advisor 조언 반영)
             │
             ▼
-Task 6: 전 폼 Validation 통합 (기존 ApiExceptionHandler 확장)
+Task 5: 로그인/회원가입/마이페이지 화면
             │
             ▼
 Task 7: 테스트 커버리지 보강
@@ -116,11 +118,13 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 - [ ] 프로필 화면에 즐겨찾기 토글 버튼 추가(로그인 시에만 노출)
 - [ ] 화면 검증은 Phase 3 Task 4 관행대로 브라우저(Playwright)로 직접 확인 — 신규 API는 Task 1~4에서 이미 유닛 테스트로 커버
 
-#### 6. 전 폼 Validation 통합 — 2~3h
+#### 6. 전 폼 Validation 통합 — 2~3h ✅ 완료 (Task 5보다 먼저 처리 — 로그인/가입 폼이 필드별 에러 메시지에 의존하므로 순서 변경)
 
-- [ ] 회원가입/로그인 DTO에 `@Valid` + bean validation 애노테이션(`@Email`, `@NotBlank`, `@Size` 등)
-- [ ] 기존 `ApiExceptionHandler`(`@RestControllerAdvice`, `src/main/java/com/lolstats/controller/ApiExceptionHandler.java` — 이미 있고 `ConstraintViolationException`만 처리 중, 클래스 주석에 "Future Phases add handlers here"라고 이미 예고돼 있음) 확장: `MethodArgumentNotValidException`(`@RequestBody` + `@Valid` 실패) 핸들러 추가. **주의**: `application.yml`의 `mvc.problemdetails.enabled: true`가 이미 `ResponseStatusException`(`MatchController`/`SummonerController`의 404 등)을 ProblemDetail로 정규화하고 있으므로, 새 핸들러가 기존 에러 응답 모양을 바꾸지 않는지 확인
-- [ ] 테스트: 잘못된 이메일 형식/빈 비밀번호 등 400 + ProblemDetail 형태 확인
+- [x] 회원가입/로그인/즐겨찾기 DTO엔 `@Valid` + bean validation 애노테이션이 **Task 1~3에서 이미 붙어있었음**(`SignupRequest`: `@NotBlank`/`@Email`/`@Size`/`@AssertTrue`, `LoginRequest`: `@NotBlank`/`@Email`, `FavoriteRequest`: `@NotNull`) — 이번 Task에서 새로 붙일 게 없었음, 컨트롤러 3곳 모두 `@Valid` 이미 적용돼 있었음
+- [x] 기존 `ApiExceptionHandler` 확장: `MethodArgumentNotValidException` 핸들러 추가. **실제로 한 일은 계획과 다름** — Boot의 `mvc.problemdetails.enabled=true`가 이미 이 예외를 400으로 자동 변환하고 있어서(Task 1에서 확인됨) 처음엔 "핸들러 불필요"로 판단했었는데, 막상 만들어서 라이브로 붙여보니 **핸들러 자체는 등록됐지만 호출이 안 됨**(기존 `ConstraintViolationException` 핸들러는 정상 작동해서 빈 로딩 자체는 확인됨) — Boot 내장 처리가 더 높은 우선순위로 먼저 가로챈 것으로 판단, `@Order(Ordered.HIGHEST_PRECEDENCE)`를 클래스에 추가해서 해결. 진짜 얻은 것은 필드별 메시지(`"email: 올바른 형식의 이메일 주소여야 합니다"` 등, Bean Validation 기본 메시지가 자동으로 한국어) — 기존엔 전부 제네릭 `"Invalid request content."`였음
+- [x] 테스트: `ApiExceptionHandlerTest` 2개(단일 필드 에러, 복수 필드 에러 조인) — 순수 유닛 테스트라 Spring 디스패치 자체는 못 잡음(그래서 위 `@Order` 문제를 라이브 검증에서야 발견함), 라이브로 기존 회원가입/로그인/제약조건 위반 케이스 모두 재확인
+
+**완료 기준 — 확인됨(라이브)**: 약관 미동의/닉네임 길이 위반 → `400` + `"nickname: 크기가 2에서 20 사이여야 합니다; agreedToTerms: 약관에 동의해야 합니다"`, 이메일 형식 오류 → `400` + `"email: 올바른 형식의 이메일 주소여야 합니다"`, 기존 `@Validated` 경로 파라미터 위반(`ConstraintViolationException`)도 그대로 정상, 정상 가입은 여전히 `201`. 유닛 테스트 2개 신규 + 전체 스위트 116개 통과.
 
 #### 7. 테스트 커버리지 보강 — 1~2h
 
@@ -170,7 +174,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 3. 즐겨찾기 API | 1.5~2h | 2026-08-08 | CSRF 토큰 구현이 Task 2에서 이관돼 실작업은 3~4h로 예상보다 늘어남 |
 | 4. 검색 기록 저장/조회 | 1.5~2h | 2026-08-08 | 예상대로 가벼웠음 — Task 2의 JwtAuthenticationFilter가 이미 선택적 인증을 공짜로 제공 |
 | 5. 화면(로그인/회원가입/마이페이지) | 3~4h | | |
-| 6. Validation 통합 | 2~3h | | |
+| 6. Validation 통합 | 2~3h | 2026-08-10 | Task 5보다 먼저 진행. DTO 애노테이션은 이미 있어서 실작업은 `@Order` 우선순위 이슈 하나 잡는 게 대부분 |
 | 7. 테스트 커버리지 보강 | 1~2h | | |
 | 8. Swagger | 1~2h | | |
 | **Track A 소계** | **18~24h** | | |
