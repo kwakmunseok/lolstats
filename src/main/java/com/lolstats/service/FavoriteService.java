@@ -5,6 +5,7 @@ import com.lolstats.domain.Summoner;
 import com.lolstats.repository.FavoriteRepository;
 import com.lolstats.repository.SummonerRepository;
 import com.lolstats.repository.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -46,11 +47,18 @@ public class FavoriteService {
             return;
         }
 
-        favoriteRepository.save(Favorite.builder()
-                .user(userRepository.getReferenceById(userId))
-                .summoner(summoner)
-                .createdAt(Instant.now())
-                .build());
+        try {
+            favoriteRepository.save(Favorite.builder()
+                    .user(userRepository.getReferenceById(userId))
+                    .summoner(summoner)
+                    .createdAt(Instant.now())
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            // Two requests can both pass the check above before either commits (TOCTOU) - the
+            // DB's (user_id, summoner_id) unique constraint is the actual source of truth, and
+            // losing this race means the favorite already exists, which is exactly what an
+            // idempotent add() should treat as success.
+        }
     }
 
     // Idempotent - DELETE on an already-removed favorite is a no-op, not an error.

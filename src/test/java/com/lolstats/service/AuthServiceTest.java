@@ -13,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -87,6 +88,20 @@ class AuthServiceTest {
 
         assertEquals(409, ex.getStatusCode().value());
         verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void signup_raceConditionOnUniqueEmail_throwsConflictNotServerError() {
+        // Two requests both pass existsByEmail (neither sees the other's row yet), then the
+        // DB's unique constraint on email rejects the second save - the TOCTOU gap between the
+        // check and the insert.
+        when(userRepository.existsByEmail("race@test.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> service.signup(signupRequest("race@test.com")));
+
+        assertEquals(409, ex.getStatusCode().value());
     }
 
     @Test

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -74,6 +75,19 @@ class FavoriteServiceTest {
         service.add(1L, 5L);
 
         verify(favoriteRepository, never()).save(any());
+    }
+
+    @Test
+    void add_raceConditionOnUniqueConstraint_staysIdempotent() {
+        // Two requests both pass the findByUserIdAndSummonerId check (TOCTOU), then the DB's
+        // (user_id, summoner_id) unique constraint rejects the second insert. add() is meant to
+        // be idempotent even under a race, not just when there's no concurrency.
+        when(summonerRepository.findById(5L)).thenReturn(Optional.of(summoner(5L)));
+        when(userRepository.getReferenceById(1L)).thenReturn(User.builder().id(1L).build());
+        when(favoriteRepository.findByUserIdAndSummonerId(1L, 5L)).thenReturn(Optional.empty());
+        when(favoriteRepository.save(any(Favorite.class))).thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        service.add(1L, 5L);
     }
 
     @Test

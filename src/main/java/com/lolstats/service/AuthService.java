@@ -8,6 +8,7 @@ import com.lolstats.dto.TokenPair;
 import com.lolstats.repository.RefreshTokenRepository;
 import com.lolstats.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -53,7 +54,13 @@ public class AuthService {
                 .createdAt(Instant.now())
                 .build();
 
-        return userRepository.save(user);
+        try {
+            return userRepository.save(user);
+        } catch (DataIntegrityViolationException e) {
+            // Two requests can both pass existsByEmail before either commits (TOCTOU) - the
+            // DB's unique constraint on email is the actual source of truth here.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 가입된 이메일입니다");
+        }
     }
 
     public TokenPair login(LoginRequest request) {
