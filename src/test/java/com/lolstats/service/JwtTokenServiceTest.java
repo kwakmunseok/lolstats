@@ -27,7 +27,17 @@ class JwtTokenServiceTest {
     @Test
     void parseUserId_tamperedToken_returnsEmpty() {
         String token = service.generateAccessToken(42L);
-        String tampered = token.substring(0, token.length() - 1) + (token.endsWith("a") ? "b" : "a");
+        // Flip the first character of the payload segment, not the last character of the
+        // signature - base64url's last character in a 32-byte (HS256) signature carries 2
+        // padding bits that don't affect the decoded byte value, so an 'a'<->'b' swap there
+        // (differing only in that low bit) can decode to an identical signature and leave the
+        // "tampered" token still valid, making the test flake on whichever run happens to end
+        // in exactly 'a' or 'b'. The payload has no such boundary - any character change there
+        // always alters the signed bytes.
+        int payloadStart = token.indexOf('.') + 1;
+        char original = token.charAt(payloadStart);
+        char replacement = original == 'a' ? 'b' : 'a';
+        String tampered = token.substring(0, payloadStart) + replacement + token.substring(payloadStart + 1);
 
         assertTrue(service.parseUserId(tampered).isEmpty());
     }
