@@ -2,18 +2,19 @@
 
 > [PROJECT_PLAN.md](./PROJECT_PLAN.md) §4 Phase 5, §5 화면 목록, §6 회원/토큰 데이터 모델, §7 Auth·마이페이지 API를 실행 단위로 쪼갠 작업 분해서(WBS). [PHASE1_PLAN.md](./PHASE1_PLAN.md)~[PHASE3_PLAN.md](./PHASE3_PLAN.md)와 동일한 형식.
 > 예산: **18~24h**(Track A, Task 1~8 + Task 10 — PROJECT_PLAN.md §10의 18~22h보다 다소 높음. Swagger가 Phase 1~3 기존 엔드포인트까지 소급 적용되고 README가 3개 Phase분 트러블슈팅을 정리해야 해서). **Task 9(CI/CD)는 별도** — §10 "배포" 라인(7~9h)에서 카운트, 진행상황만 이 문서에서 같이 추적.
-> **상태: Track A(Task 1~8) 전부 완료(2026-08-10). Track B는 Task 9의 파이프라인 코드(Dockerfile/compose/workflow)까지 작성·로컬 검증 완료(2026-08-11), 실제 EC2 배포와 Task 10 서비스 URL은 여전히 인프라 대기.** Phase 4는 마감 후 이월 확정(§10, 07/30 grilling)이라 건너뛰고 이 문서로 진행.
+> **상태: Track A(Task 1~8) 전부 완료(2026-08-10). Task 9(CI/CD)도 실제 EC2 배포까지 확인 완료(2026-08-12) — 남은 건 Task 10 README(서비스 URL 기재)뿐.** Phase 4는 마감 후 이월 확정(§10, 07/30 grilling)이라 건너뛰고 이 문서로 진행.
 
 ## 0. 착수 전 확인 사항 — 블로커
 
-- [ ] **EC2 인스턴스 자체가 아직 없음(재확인일 2026-08-11)** — 도메인 구매·AWS 계정 생성·EC2 세팅은 Claude Code 권한 밖(결제·계정 생성 필요, §9.6 "인프라 조기 배포") — 사용자가 직접 진행하기로 함. **Task 9의 파이프라인 코드 자체(Dockerfile, docker-compose.prod.yml, `.github/workflows/deploy.yml`)는 EC2 없이도 작성 가능해 먼저 완료함** — 로컬 Docker로 "app+MySQL+Redis 전체 스택이 실제로 뜨는지"까지 스모크 테스트 완료. 남은 건 EC2가 생기면: ① `~/lolstats`에 `docker-compose.prod.yml`+`.env` 배치 ② GitHub Secrets(`EC2_HOST`/`EC2_USER`/`EC2_SSH_KEY`) 등록 ③ main에 push해서 실제 파이프라인 1회 실행 확인. §10 "일정 압박 시 끝까지 지키는 것" 4개 중 2개(실서비스 URL, CI/CD 실제 동작 확인)가 여기 걸려있음
-- [ ] Track A(Task 1~8)는 **전부 완료** — 더 이상 블로커 아님
+- [x] **EC2 인스턴스 생성 + 배포 완료(2026-08-12)** — 사용자가 AWS 계정/EC2(t3.small, ap-northeast-2) 생성. `push(master)` → 테스트 → Docker 빌드+GHCR push → 배포까지 파이프라인 전체가 실제로 성공, `http://3.34.80.155:8080` 실서비스 `200` 확인. 더 이상 블로커 아님
+- [x] Track A(Task 1~8)는 **전부 완료**
 
 ## 0.1 진행 현황 & 재개 방법
 
 - Phase 1~3 완료(Phase 3: 2026-08-08). Phase 4는 마감 후 이월 확정.
 - **Phase 5 Track A(Task 1~8) 전부 완료(2026-08-10)** — 회원가입/JWT 로그인·로그아웃·재발급/즐겨찾기/검색기록/화면/Validation/테스트보강/Swagger 전부 커밋됨. 전체 스위트 118개 통과.
-- 다음 세션 시작 시: **Track B(Task 9 CI/CD, Task 10 README)는 사용자의 인프라 작업(§0 블로커) 완료 후 재개.** 인프라가 준비되면 Task 9부터 순서대로.
+- **Task 9(CI/CD) 전부 완료(2026-08-12)** — 아래 §3 Task 9 상세 참고. GitHub 호스팅 러너에서 EC2로 인바운드 SSH가 TCP 단계부터 막혀(보안그룹/NACL/OS 방화벽 전부 정상 확인, 신규 AWS 계정 대상 자동 방어로 추정) EC2에 셀프 호스티드 러너를 설치하는 쪽으로 전환, 배포까지 실제 성공 확인
+- 다음 세션 시작 시: **Task 10 README만 남음** — ERD/아키텍처 다이어그램, Phase 1~3+CI/CD 트러블슈팅 기록, 서비스 URL(`http://3.34.80.155:8080`, 도메인 연결 전 임시). 도메인 구매는 보류 중(사용자 결정)
 
 ## 1. 이 문서 범위에 포함되지 않는 것
 
@@ -153,11 +154,15 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 - [x] **파이프라인 코드 작성 + 로컬 검증 완료(2026-08-11)** — EC2 없이 먼저 진행 가능한 부분만 우선 처리(사용자 결정: 도메인 구매는 보류, CI/CD는 지금 진행)
   - `Dockerfile`: 멀티스테이지 빌드(`eclipse-temurin:17-jdk` 빌드 → `17-jre-alpine` 런타임), 테스트는 CI 별도 스텝에서 도니 이미지 빌드 시 `-x test`로 스킵. `gradlew`가 git에 실행권한(100644)으로 커밋돼 있어 `chmod +x` 명시 필요했음(로컬 `docker build` 검증 중 확인)
   - `docker-compose.prod.yml`: app(GHCR 이미지)+MySQL+Redis, DB/Redis 포트 미노출(§9.8 보안), 시크릿은 `.env`(`env_file`) 주입. 로컬 dev용 `docker-compose.yml`과 프로젝트명 충돌 없게 완전 분리 설계
-  - `.github/workflows/deploy.yml`: `push(main)` → test 잡(dev 프로필, MySQL 8.4+Redis를 GitHub Actions service containers로 띄움 — `RepositoryIntegrationTest`/`LolstatsApplicationTests`가 실제 DB를 쓰기 때문. `RIOT_API_KEY`/`JWT_SECRET`은 컨텍스트 로딩용 더미값이라 Secret 등록 불필요) → 통과 시 build-and-deploy 잡(Docker 빌드 → GHCR push, `GITHUB_TOKEN`으로 인증 — 별도 GHCR 토큰 발급 불필요 → EC2 SSH 접속 → `docker compose -f docker-compose.prod.yml pull && up -d`)
+  - `.github/workflows/deploy.yml`(초안): `push(master)` → test 잡(dev 프로필, MySQL 8.4+Redis를 GitHub Actions service containers로 띄움 — `RepositoryIntegrationTest`/`LolstatsApplicationTests`가 실제 DB를 쓰기 때문. `RIOT_API_KEY`/`JWT_SECRET`은 컨텍스트 로딩용 더미값이라 Secret 등록 불필요) → 통과 시 build 잡(Docker 빌드 → GHCR push, `GITHUB_TOKEN`으로 인증 — 별도 GHCR 토큰 발급 불필요) → deploy 잡. **최초엔 deploy를 EC2 SSH 접속으로 설계했으나 실배포 중 GitHub 호스팅 러너의 인바운드 SSH가 막혀있는 게 확인돼 셀프 호스티드 러너 방식으로 전환(아래 실배포 항목 참고)**
   - **로컬 스모크 테스트로 실제 버그 1건 발견·수정**: `docker compose -f docker-compose.prod.yml up`으로 로컬에서 app+새 MySQL+Redis 전체 스택을 띄워보니 `application-prod.yml`의 `ddl-auto: validate`가 빈 DB(테이블 없음)에서 `missing table [favorites]`로 부팅 자체가 실패함 — 새 EC2 DB도 처음엔 무조건 빈 상태라 실배포 시 100% 재현될 문제였음. 사용자 확인 후 prod도 dev와 동일하게 `ddl-auto: update`로 변경(Flyway 등 마이그레이션 도구는 미도입 — 1인 개발 학습 프로젝트 규모엔 과함, 컬럼 삭제/이름변경 리팩터링 시 옛 컬럼이 안 지워지는 schema drift 위험은 트레이드오프로 인지). 수정 후 재검증: `docker compose -p lolstats-prod-smoketest -f docker-compose.prod.yml up -d`로 완전 격리된 프로젝트명으로 스모크 테스트 → `200 OK` 확인, 로컬 dev 컨테이너(`lolstats-mysql-1`/`lolstats-redis-1`)엔 영향 없음 확인
-- [ ] **남은 선행 조건**: §0 블로커(EC2 인스턴스 생성 + `~/lolstats`에 `docker-compose.prod.yml`/`.env` 배치) — 사용자 작업
-- [ ] GitHub Secrets 등록(사용자 작업 — Claude Code는 토큰/키를 직접 입력하지 않음): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`
-- [ ] EC2 준비 후 실제 push로 파이프라인 1회 성공 확인
+- [x] **EC2 인스턴스 생성(사용자, 2026-08-11)**: t3.small, ap-northeast-2, Ubuntu 24.04, Elastic IP `3.34.80.155` 고정. Docker/Compose 설치, `~/lolstats/`에 `docker-compose.prod.yml` + prod 전용 `.env`(dev와 다른 새 `DB_PASSWORD`/`JWT_SECRET` 생성 — §9.5/§9.8 "로컬 약한 비번 재사용 금지" 준수) 배치 완료
+- [x] **버그: `docker-compose.prod.yml`의 GHCR 이미지 소유자 오타** (`kwakmoonseok` → 실제 계정 `kwakmunseok`) — 워크플로우 자체는 `github.repository_owner`로 정확했지만 손으로 적은 compose 파일 쪽이 틀려있었음, 실배포 전 발견·수정
+- [x] **버그: 워크플로우 트리거가 `branches: [main]`인데 실제 기본 브랜치는 `master`** — 파이프라인이 커밋 3개(`182dafa`~`eff1f97`) 동안 단 한 번도 안 돈 상태였음, `master`로 수정 후에야 최초 실행됨
+- [x] **버그: `gradlew`가 git에 비실행권한(100644)으로 커밋돼 있어 CI에서 `Permission denied`(exit 126)** — Dockerfile은 `chmod +x`로 우회했지만 워크플로우의 `./gradlew test` 스텝엔 누락돼 있었음. `git update-index --chmod=+x gradlew`로 근본 수정 + 워크플로우에도 `chmod +x` 백업 스텝 추가
+- [x] **GHCR secondary rate limit** — 짧은 시간에 push/재시도/API 폴링이 몰려 GHCR push가 일시적으로 403(secondary rate limit)으로 막힘. 몇 분 대기 후 재시도로 해소, 실제 설정 문제 아니었음
+- [x] **핵심 이슈: GitHub 호스팅 러너 → EC2 인바운드 SSH가 TCP 단계에서 계속 timeout**(`dial tcp ***:22: i/o timeout`) — `appleboy/ssh-action`, 순수 `ssh`, bash `/dev/tcp` 세 가지 방식 전부 동일하게 실패. 원인 규명 과정: 보안 그�룹 규칙(`SSH/TCP/22/0.0.0.0/0`) 확인 → 인스턴스에 실제로 그 보안 그룹이 붙어있는지 확인 → OS 방화벽(`ufw`) 확인 → 전부 정상. **AWS CloudShell(외부 네트워크)에서는 22번 접속 성공** — 서버·설정 문제가 아니라 GitHub Actions 러너 대역만 막히는 것으로 확정(신규 AWS 계정 대상 자동 방어 추정). **해결: EC2에 GitHub Actions 셀프 호스티드 러너를 직접 설치**(systemd 서비스로 상시 등록) — 배포 job이 인바운드 SSH 없이 EC2 박스 위에서 직접 실행되도록 워크플로우 재구성(`build`/`deploy` 잡 분리, `deploy`는 `runs-on: self-hosted`). `EC2_HOST`/`EC2_USER`/`EC2_SSH_KEY` Secret은 더 이상 사용 안 함(정리는 추후)
+- [x] **실제 배포 성공 확인(2026-08-12)**: `push(master)` → test → build(GHCR push) → deploy(셀프 호스티드 러너, `docker compose pull && up -d`) 전체 파이프라인 그린. `http://3.34.80.155:8080` 외부 접속 `200` 확인, 컨테이너 3개(`app`/`mysql`/`redis`) 전부 정상 기동
 
 #### 10. README 작성 — 2~3h (Track A 산출물 + Track B의 서비스 URL 둘 다 필요한 수렴 지점)
 
@@ -178,7 +183,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 3. [x] 마이페이지에서 즐겨찾기 추가/제거, 최근 검색 기록 조회가 화면에서 실제로 눈으로 확인 가능
 4. [x] 잘못된 입력(형식 오류 이메일 등)에 대해 폼/`@Valid` 둘 다 일관된 에러 응답
 5. [x] Swagger UI에서 Phase 1~5 API 전체가 조회 가능
-6. [ ] (Track B — 블로킹, 사용자 작업 대기) CI/CD 파이프라인 코드는 작성·로컬 검증 완료(2026-08-11). push 후 EC2 실배포 확인 + README 실서비스 URL 기재는 §0 블로커(도메인 구매·EC2 생성) 해소 후 재개
+6. [x] CI/CD 파이프라인으로 push 후 자동 배포 확인(2026-08-12, `http://3.34.80.155:8080`) — README 실서비스 URL 기재만 남음(Task 10). 도메인 구매는 사용자 결정으로 보류 중
 
 ### 실측 트래킹
 
@@ -193,8 +198,8 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 7. 테스트 커버리지 보강 | 1~2h | 2026-08-10 | 회원가입/즐겨찾기 TOCTOU 레이스 컨디션 수정 2건 발견·수정 |
 | 8. Swagger | 1~2h | 2026-08-10 | Boot 4.1.0과 정확히 매칭되는 springdoc 3.1.0 확인에 시간 씀(추측 대신 릴리스노트 확인) |
 | **Track A 소계** | **18~24h** | | |
-| 9. CI/CD (배포 라인 별도 카운트) | 2~3h | 2026-08-11(코드만) | 파이프라인 코드+로컬 스모크 테스트 완료. 실배포 확인은 §0 블로커(EC2) 해소 후 |
-| 10. README | 2~3h | | Track A+B 수렴 후 마무리 |
+| 9. CI/CD (배포 라인 별도 카운트) | 2~3h | 2026-08-12 | GHCR 오타·브랜치명 불일치·gradlew 권한 3건 실배포 중 발견·수정. 호스팅 러너 SSH 인바운드 차단으로 셀프 호스티드 러너 전환 — 추정보다 크게 초과(네트워크 원인 규명이 대부분) |
+| 10. README | 2~3h | | 서비스 URL 확보됨(`http://3.34.80.155:8080`), 착수 가능 |
 
 ---
 
