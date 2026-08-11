@@ -50,7 +50,7 @@ jobs:
           RIOT_API_KEY: ci-dummy-key
           JWT_SECRET: ci-dummy-secret-not-for-prod
 
-  build-and-deploy:
+  build:
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -69,22 +69,19 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/lolstats:latest
             ghcr.io/${{ github.repository_owner }}/lolstats:${{ github.sha }}
-      # 선행 조건(PHASE5_PLAN.md §0): EC2 인스턴스 + ~/lolstats에 docker-compose.prod.yml, .env 배치 완료 후에만 동작.
-      # appleboy/ssh-action 대신 순수 ssh 사용 - 반복된 "dial tcp ***:22: i/o timeout"이 진짜 네트워크
-      # 차단인지, 액션의 시크릿 처리(호스트 값 공백/개행 등) 문제인지 구분하기 위한 진단 겸 단순화.
-      - name: Deploy to EC2
-        env:
-          RAW_EC2_HOST: ${{ secrets.EC2_HOST }}
-          RAW_EC2_USER: ${{ secrets.EC2_USER }}
-          RAW_EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+
+  # GitHub 호스팅 러너에서 EC2로 SSH 인바운드가 계속 TCP 단계에서 timeout(appleboy/ssh-action, 순수 ssh,
+  # bash /dev/tcp 전부 동일 실패 - 보안그룹/NACL/OS 방화벽은 전부 확인 완료, CloudShell에서는 접속 성공함.
+  # 신규 AWS 계정 대상 자동 방어에 GitHub Actions 러너 대역이 걸린 것으로 추정). EC2에 셀프 호스티드
+  # 러너를 직접 설치해 인바운드 SSH 자체를 없앰 - 이 job은 EC2 박스 위에서 로컬로 실행됨.
+  deploy:
+    needs: build
+    runs-on: self-hosted
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Deploy
         run: |
-          EC2_HOST=$(echo "$RAW_EC2_HOST" | tr -d '[:space:]')
-          EC2_USER=$(echo "$RAW_EC2_USER" | tr -d '[:space:]')
-          mkdir -p ~/.ssh
-          printf '%s\n' "$RAW_EC2_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          echo "TCP reachability check on port 22:"
-          timeout 10 bash -c "echo > /dev/tcp/${EC2_HOST}/22" && echo "TCP: reachable" || echo "TCP: FAILED"
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
-            "${EC2_USER}@${EC2_HOST}" \
-            'cd ~/lolstats && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d'
+          cd ~/lolstats
+          docker compose -f docker-compose.prod.yml pull
+          docker compose -f docker-compose.prod.yml up -d
