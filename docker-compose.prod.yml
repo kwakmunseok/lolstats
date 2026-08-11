@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/kwakmoonseok/lolstats:latest
+    image: ghcr.io/kwakmunseok/lolstats:latest
     restart: unless-stopped
     env_file: .env
     environment:
