@@ -5,7 +5,9 @@ spring:
     password: ${DB_PASSWORD}
   jpa:
     hibernate:
-      ddl-auto: validate
+      # 마이그레이션 도구(Flyway 등) 미도입 - 1인 개발 학습 프로젝트 규모에 맞춰 dev와 동일하게 update.
+      # 컬럼 삭제/이름변경 리팩터링 시 옛 컬럼이 안 지워지고 남는 schema drift 위험은 있음(트레이드오프 인지).
+      ddl-auto: update
     show-sql: false
   data:
     redis:

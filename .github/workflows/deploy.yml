@@ -1,0 +1,81 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # docker-compose.yml(dev)과 동일한 포트/계정 - RepositoryIntegrationTest, LolstatsApplicationTests가
+    # dev 프로필로 진짜 MySQL/Redis에 붙는다 (PROJECT_PLAN.md §9.4가 말한 "DB 불필요" 전제와 달리
+    # 실제로는 통합 테스트가 붙어있음 - H2 미채용 이유는 RepositoryIntegrationTest 주석 참고).
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: lolstats
+          MYSQL_USER: lolstats
+          MYSQL_PASSWORD: lolstats
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+        env:
+          SPRING_PROFILES_ACTIVE: dev
+          # RIOT_API_KEY/JWT_SECRET는 컨텍스트 로딩에만 쓰이고 실제 Riot API 호출이나
+          # 서명 검증엔 안 쓰임(테스트는 전부 모킹) - 진짜 값일 필요 없어 Secret 등록 불필요.
+          RIOT_API_KEY: ci-dummy-key
+          JWT_SECRET: ci-dummy-secret-not-for-prod
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/lolstats:latest
+            ghcr.io/${{ github.repository_owner }}/lolstats:${{ github.sha }}
+      # 선행 조건(PHASE5_PLAN.md §0): EC2 인스턴스 + ~/lolstats에 docker-compose.prod.yml, .env 배치 완료 후에만 동작.
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/lolstats
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d

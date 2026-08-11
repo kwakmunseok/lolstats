@@ -2,11 +2,11 @@
 
 > [PROJECT_PLAN.md](./PROJECT_PLAN.md) §4 Phase 5, §5 화면 목록, §6 회원/토큰 데이터 모델, §7 Auth·마이페이지 API를 실행 단위로 쪼갠 작업 분해서(WBS). [PHASE1_PLAN.md](./PHASE1_PLAN.md)~[PHASE3_PLAN.md](./PHASE3_PLAN.md)와 동일한 형식.
 > 예산: **18~24h**(Track A, Task 1~8 + Task 10 — PROJECT_PLAN.md §10의 18~22h보다 다소 높음. Swagger가 Phase 1~3 기존 엔드포인트까지 소급 적용되고 README가 3개 Phase분 트러블슈팅을 정리해야 해서). **Task 9(CI/CD)는 별도** — §10 "배포" 라인(7~9h)에서 카운트, 진행상황만 이 문서에서 같이 추적.
-> **상태: Track A(Task 1~8) 전부 완료(2026-08-10). Track B(Task 9~10)는 인프라 배포 대기로 블로킹.** Phase 4는 마감 후 이월 확정(§10, 07/30 grilling)이라 건너뛰고 이 문서로 진행.
+> **상태: Track A(Task 1~8) 전부 완료(2026-08-10). Track B는 Task 9의 파이프라인 코드(Dockerfile/compose/workflow)까지 작성·로컬 검증 완료(2026-08-11), 실제 EC2 배포와 Task 10 서비스 URL은 여전히 인프라 대기.** Phase 4는 마감 후 이월 확정(§10, 07/30 grilling)이라 건너뛰고 이 문서로 진행.
 
 ## 0. 착수 전 확인 사항 — 블로커
 
-- [ ] **"인프라 조기 배포"(§9.6, 4~5h)가 아직 안 됨(재확인일 2026-08-10)** — `.github/workflows` 없음, `Dockerfile` 없음, 배포 관련 커밋 없음. §9.6이 정확히 경고한 상황("Phase 5 마지막 주에 처음 시도하면 서버 세팅 문제가 마감 직전에 터진다")이 계속 밀리는 중. 마감(08/31)까지 남은 기간 기준 아직 여유는 있지만, 이 문서의 **Track B(Task 9 CI/CD, Task 10의 서비스 URL)는 인프라 배포 없이는 시작 자체가 불가** — §10 "일정 압박 시 끝까지 지키는 것" 4개 중 2개(실서비스 URL, CI/CD)가 여기 걸려있음. **도메인 구매·AWS 계정 생성·EC2 세팅은 Claude Code 권한 밖(결제·계정 생성 필요) — 사용자가 직접 진행하기로 함**
+- [ ] **EC2 인스턴스 자체가 아직 없음(재확인일 2026-08-11)** — 도메인 구매·AWS 계정 생성·EC2 세팅은 Claude Code 권한 밖(결제·계정 생성 필요, §9.6 "인프라 조기 배포") — 사용자가 직접 진행하기로 함. **Task 9의 파이프라인 코드 자체(Dockerfile, docker-compose.prod.yml, `.github/workflows/deploy.yml`)는 EC2 없이도 작성 가능해 먼저 완료함** — 로컬 Docker로 "app+MySQL+Redis 전체 스택이 실제로 뜨는지"까지 스모크 테스트 완료. 남은 건 EC2가 생기면: ① `~/lolstats`에 `docker-compose.prod.yml`+`.env` 배치 ② GitHub Secrets(`EC2_HOST`/`EC2_USER`/`EC2_SSH_KEY`) 등록 ③ main에 push해서 실제 파이프라인 1회 실행 확인. §10 "일정 압박 시 끝까지 지키는 것" 4개 중 2개(실서비스 URL, CI/CD 실제 동작 확인)가 여기 걸려있음
 - [ ] Track A(Task 1~8)는 **전부 완료** — 더 이상 블로커 아님
 
 ## 0.1 진행 현황 & 재개 방법
@@ -150,9 +150,14 @@ Task 10: README 작성 (Track A 산출물 + Track B의 서비스 URL 둘 다 필
 
 #### 9. CI/CD 파이프라인 완성 — 2~3h (예산은 §10 "배포" 라인 7~9h에서 카운트, 진행상황만 이 문서에서 같이 추적)
 
-- [ ] **선행 조건**: §0 블로커(인프라 조기 배포) 완료 — EC2 인스턴스 + Docker 세팅 없이는 아래 배포 스텝 자체가 무의미
-- [ ] GitHub Actions: `push(main)` → 테스트 실행(실패 시 배포 중단) → Docker 이미지 빌드 → GHCR push → EC2 SSH 접속 → `docker compose pull && docker compose up -d`(§9.4)
-- [ ] GitHub Secrets 등록: EC2 SSH 키, GHCR 토큰
+- [x] **파이프라인 코드 작성 + 로컬 검증 완료(2026-08-11)** — EC2 없이 먼저 진행 가능한 부분만 우선 처리(사용자 결정: 도메인 구매는 보류, CI/CD는 지금 진행)
+  - `Dockerfile`: 멀티스테이지 빌드(`eclipse-temurin:17-jdk` 빌드 → `17-jre-alpine` 런타임), 테스트는 CI 별도 스텝에서 도니 이미지 빌드 시 `-x test`로 스킵. `gradlew`가 git에 실행권한(100644)으로 커밋돼 있어 `chmod +x` 명시 필요했음(로컬 `docker build` 검증 중 확인)
+  - `docker-compose.prod.yml`: app(GHCR 이미지)+MySQL+Redis, DB/Redis 포트 미노출(§9.8 보안), 시크릿은 `.env`(`env_file`) 주입. 로컬 dev용 `docker-compose.yml`과 프로젝트명 충돌 없게 완전 분리 설계
+  - `.github/workflows/deploy.yml`: `push(main)` → test 잡(dev 프로필, MySQL 8.4+Redis를 GitHub Actions service containers로 띄움 — `RepositoryIntegrationTest`/`LolstatsApplicationTests`가 실제 DB를 쓰기 때문. `RIOT_API_KEY`/`JWT_SECRET`은 컨텍스트 로딩용 더미값이라 Secret 등록 불필요) → 통과 시 build-and-deploy 잡(Docker 빌드 → GHCR push, `GITHUB_TOKEN`으로 인증 — 별도 GHCR 토큰 발급 불필요 → EC2 SSH 접속 → `docker compose -f docker-compose.prod.yml pull && up -d`)
+  - **로컬 스모크 테스트로 실제 버그 1건 발견·수정**: `docker compose -f docker-compose.prod.yml up`으로 로컬에서 app+새 MySQL+Redis 전체 스택을 띄워보니 `application-prod.yml`의 `ddl-auto: validate`가 빈 DB(테이블 없음)에서 `missing table [favorites]`로 부팅 자체가 실패함 — 새 EC2 DB도 처음엔 무조건 빈 상태라 실배포 시 100% 재현될 문제였음. 사용자 확인 후 prod도 dev와 동일하게 `ddl-auto: update`로 변경(Flyway 등 마이그레이션 도구는 미도입 — 1인 개발 학습 프로젝트 규모엔 과함, 컬럼 삭제/이름변경 리팩터링 시 옛 컬럼이 안 지워지는 schema drift 위험은 트레이드오프로 인지). 수정 후 재검증: `docker compose -p lolstats-prod-smoketest -f docker-compose.prod.yml up -d`로 완전 격리된 프로젝트명으로 스모크 테스트 → `200 OK` 확인, 로컬 dev 컨테이너(`lolstats-mysql-1`/`lolstats-redis-1`)엔 영향 없음 확인
+- [ ] **남은 선행 조건**: §0 블로커(EC2 인스턴스 생성 + `~/lolstats`에 `docker-compose.prod.yml`/`.env` 배치) — 사용자 작업
+- [ ] GitHub Secrets 등록(사용자 작업 — Claude Code는 토큰/키를 직접 입력하지 않음): `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`
+- [ ] EC2 준비 후 실제 push로 파이프라인 1회 성공 확인
 
 #### 10. README 작성 — 2~3h (Track A 산출물 + Track B의 서비스 URL 둘 다 필요한 수렴 지점)
 
@@ -173,7 +178,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 3. [x] 마이페이지에서 즐겨찾기 추가/제거, 최근 검색 기록 조회가 화면에서 실제로 눈으로 확인 가능
 4. [x] 잘못된 입력(형식 오류 이메일 등)에 대해 폼/`@Valid` 둘 다 일관된 에러 응답
 5. [x] Swagger UI에서 Phase 1~5 API 전체가 조회 가능
-6. [ ] (Track B — 블로킹, 사용자 작업 대기) CI/CD 파이프라인으로 push 후 자동 배포 확인, README에 실서비스 URL 기재 — §0 블로커(도메인 구매·EC2 생성·인프라 배포) 해소 후 재개
+6. [ ] (Track B — 블로킹, 사용자 작업 대기) CI/CD 파이프라인 코드는 작성·로컬 검증 완료(2026-08-11). push 후 EC2 실배포 확인 + README 실서비스 URL 기재는 §0 블로커(도메인 구매·EC2 생성) 해소 후 재개
 
 ### 실측 트래킹
 
@@ -188,7 +193,7 @@ PROJECT_PLAN.md §4 Phase 5 체크리스트 전체 충족 + 아래 확인:
 | 7. 테스트 커버리지 보강 | 1~2h | 2026-08-10 | 회원가입/즐겨찾기 TOCTOU 레이스 컨디션 수정 2건 발견·수정 |
 | 8. Swagger | 1~2h | 2026-08-10 | Boot 4.1.0과 정확히 매칭되는 springdoc 3.1.0 확인에 시간 씀(추측 대신 릴리스노트 확인) |
 | **Track A 소계** | **18~24h** | | |
-| 9. CI/CD (배포 라인 별도 카운트) | 2~3h | | §0 블로커 해소 후 착수 |
+| 9. CI/CD (배포 라인 별도 카운트) | 2~3h | 2026-08-11(코드만) | 파이프라인 코드+로컬 스모크 테스트 완료. 실배포 확인은 §0 블로커(EC2) 해소 후 |
 | 10. README | 2~3h | | Track A+B 수렴 후 마무리 |
 
 ---
