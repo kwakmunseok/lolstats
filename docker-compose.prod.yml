@@ -7,8 +7,10 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:mysql://mysql:3306/lolstats
       REDIS_HOST: redis
+    # Nginx가 80/443에서 프록시하고 여기로 넘김 - 앱 포트를 인터넷에 직접 노출할 필요 없음
+    # (도메인/HTTPS 붙이기 전엔 IP:8080 직접 접속용으로 0.0.0.0 바인딩했었음).
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       - mysql
       - redis

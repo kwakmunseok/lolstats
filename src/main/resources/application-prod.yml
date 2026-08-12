@@ -17,6 +17,9 @@ spring:
 
 server:
   port: 8080
+  # Nginx가 80/443에서 프록시(PROJECT_PLAN.md §9.2) - 이거 없으면 per-IP 제한이 전부 Nginx
+  # IP 하나로 뭉치고, Secure 쿠키/리다이렉트도 요청을 HTTP로 오인해 오동작함.
+  forward-headers-strategy: framework
 
 riot:
   api:

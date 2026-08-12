@@ -78,10 +78,14 @@ jobs:
     needs: build
     runs-on: self-hosted
     steps:
+      - uses: actions/checkout@v4
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-      - name: Deploy
+      # docker-compose.prod.yml을 저장소에서 항상 동기화 - 이전엔 서버에 놓인 사본을 그냥 재사용해서
+      # 레포에서 파일을 고쳐도(GHCR 오타 수정 등) 수동으로 다시 scp하기 전까진 반영이 안 됐음.
+      - name: Sync compose file and deploy
         run: |
+          cp docker-compose.prod.yml ~/lolstats/docker-compose.prod.yml
           cd ~/lolstats
           docker compose -f docker-compose.prod.yml pull
           docker compose -f docker-compose.prod.yml up -d
