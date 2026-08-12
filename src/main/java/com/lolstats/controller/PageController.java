@@ -14,6 +14,7 @@ import com.lolstats.service.DataDragonService;
 import com.lolstats.service.FavoriteService;
 import com.lolstats.service.MatchCollectionQueue;
 import com.lolstats.service.MatchService;
+import com.lolstats.service.QueueNames;
 import com.lolstats.service.SearchHistoryService;
 import com.lolstats.service.SummonerService;
 import com.lolstats.service.TierEmblems;
@@ -155,7 +156,7 @@ public class PageController {
         model.addAttribute("riotMatchId", match.getRiotMatchId());
         model.addAttribute("playedAt", PLAYED_AT_FORMAT.format(match.getGameCreation()));
         model.addAttribute("duration", formatDuration(match.getGameDuration()));
-        model.addAttribute("queueType", match.getQueueType());
+        model.addAttribute("queueType", QueueNames.displayName(match.getQueueType()));
         // Only Rift matches are ever linked to from the match list (RIFT_QUEUE_TYPES filter
         // above), so this is always 10 participants; Riot's response orders them team100
         // (first 5) then team200 (last 5), and saveAll()/findByMatchId preserve that order.
@@ -170,7 +171,7 @@ public class PageController {
                 match.getRiotMatchId(),
                 PLAYED_AT_FORMAT.format(match.getGameCreation()),
                 formatDuration(match.getGameDuration()),
-                match.getQueueType(),
+                QueueNames.displayName(match.getQueueType()),
                 toParticipantView(p));
     }
 
