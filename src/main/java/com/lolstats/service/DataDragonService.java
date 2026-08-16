@@ -111,7 +111,8 @@ public class DataDragonService {
                 .collect(Collectors.toMap(
                         e -> Integer.parseInt(e.getKey()),
                         e -> new ItemInfo(Integer.parseInt(e.getKey()), e.getValue().name(),
-                                CDN_BASE + version + "/img/item/" + e.getValue().image().full())));
+                                CDN_BASE + version + "/img/item/" + e.getValue().image().full(),
+                                e.getValue().description())));
 
         this.spellsById = spells.data().values().stream()
                 .collect(Collectors.toMap(
@@ -137,7 +138,7 @@ public class DataDragonService {
     public record ChampionInfo(int id, String name, String imageUrl) {
     }
 
-    public record ItemInfo(int id, String name, String imageUrl) {
+    public record ItemInfo(int id, String name, String imageUrl, String description) {
     }
 
     public record SpellInfo(int id, String name, String imageUrl) {

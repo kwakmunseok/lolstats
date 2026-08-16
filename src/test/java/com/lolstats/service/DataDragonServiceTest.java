@@ -41,7 +41,8 @@ class DataDragonServiceTest {
                 "Ahri", new ChampionListResponse.ChampionData("103", "아리",
                         new ChampionListResponse.ChampionImage("Ahri.png")))));
         when(client.getItems(version)).thenReturn(new ItemListResponse(Map.of(
-                "1001", new ItemListResponse.ItemData("장화", new ItemListResponse.ItemImage("1001.png")))));
+                "1001", new ItemListResponse.ItemData("장화", "<mainText>이동속도 +25</mainText>",
+                        new ItemListResponse.ItemImage("1001.png")))));
         when(client.getSummonerSpells(version)).thenReturn(new SummonerSpellListResponse(Map.of(
                 "SummonerFlash", new SummonerSpellListResponse.SpellData("4", "점멸",
                         new SummonerSpellListResponse.SpellImage("SummonerFlash.png")))));
@@ -68,6 +69,7 @@ class DataDragonServiceTest {
         assertTrue(boots.isPresent());
         assertEquals("장화", boots.get().name());
         assertEquals("https://ddragon.leagueoflegends.com/cdn/16.14.1/img/item/1001.png", boots.get().imageUrl());
+        assertEquals("<mainText>이동속도 +25</mainText>", boots.get().description());
     }
 
     @Test
