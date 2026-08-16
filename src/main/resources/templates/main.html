@@ -9,7 +9,7 @@
     <form id="searchForm" class="d-flex position-relative mb-1" autocomplete="off">
         <input type="text" id="riotIdInput" class="form-control me-2"
                placeholder="게임이름#태그 (예: Hide on bush#KR1)"
-               maxlength="22" pattern="^[^#]{3,16}#[A-Za-z0-9]{3,5}$"
+               maxlength="22" pattern="^[^#]{3,16}#[^#]{3,5}$"
                title="게임이름(3~16자)#태그라인(3~5자) 형식으로 입력하세요" required>
         <button class="btn btn-primary" type="submit">검색</button>
         <div id="autocompleteResults" class="list-group position-absolute top-100 start-0 w-100"
