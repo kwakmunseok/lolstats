@@ -32,8 +32,10 @@
                          height="20" alt="">
                 </td>
                 <td>
-                    <span th:each="item : ${p.itemImageUrls}">
-                        <img th:if="${item}" th:src="${item}" width="24" height="24" class="rounded" alt="">
+                    <span th:each="item : ${p.items}">
+                        <img th:if="${item}" th:src="${item.imageUrl}" width="24" height="24" class="rounded"
+                             alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
+                             th:attr="data-bs-content=${item.description}">
                     </span>
                 </td>
             </tr>
@@ -63,8 +65,10 @@
                          height="20" alt="">
                 </td>
                 <td>
-                    <span th:each="item : ${p.itemImageUrls}">
-                        <img th:if="${item}" th:src="${item}" width="24" height="24" class="rounded" alt="">
+                    <span th:each="item : ${p.items}">
+                        <img th:if="${item}" th:src="${item.imageUrl}" width="24" height="24" class="rounded"
+                             alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
+                             th:attr="data-bs-content=${item.description}">
                     </span>
                 </td>
             </tr>
@@ -72,5 +76,15 @@
         </table>
     </div>
 </main>
+<!-- 이 화면에서만 쓰여서 공용 layout.html이 아니라 여기서 직접 로드(profile.html과 동일 패턴 -
+     data-bs-toggle="popover" 아이템 툴팁에 필요) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // sanitize:false - Bootstrap's default sanitizer strips unknown tags (and their text) entirely,
+    // and Data Dragon descriptions use its own custom tags (<mainText>, <attention>, ...) that aren't
+    // in Bootstrap's allow-list, so this content would render empty otherwise. Safe here: it's server-
+    // fetched from Riot's Data Dragon CDN, not user input.
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el, {sanitize: false}));
+</script>
 </body>
 </html>

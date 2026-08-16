@@ -84,9 +84,11 @@
                     </div>
 
                     <div class="d-flex gap-1">
-                        <div th:each="item : ${m.player.itemImageUrls}"
+                        <div th:each="item : ${m.player.items}"
                              class="bg-body-secondary rounded" style="width: 28px; height: 28px;">
-                            <img th:if="${item}" th:src="${item}" width="28" height="28" class="rounded" alt="아이템">
+                            <img th:if="${item}" th:src="${item.imageUrl}" width="28" height="28" class="rounded"
+                                 alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
+                                 th:attr="data-bs-content=${item.description}">
                         </div>
                     </div>
                 </div>
@@ -131,6 +133,9 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script th:inline="javascript">
     /*<![CDATA[*/
+    // sanitize:false - see match-detail.html for why (Data Dragon's custom description tags aren't
+    // in Bootstrap's allow-list and would otherwise render empty; content isn't user input).
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el, {sanitize: false}));
     const gameName = /*[[${summoner.gameName}]]*/ '';
     const tagLine = /*[[${summoner.tagLine}]]*/ '';
     const summonerId = /*[[${summoner.id}]]*/ 0;

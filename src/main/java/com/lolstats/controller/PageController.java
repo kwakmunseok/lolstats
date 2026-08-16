@@ -181,8 +181,10 @@ public class PageController {
         String championImageUrl = dataDragonService.getChampion(p.getChampionId())
                 .map(DataDragonService.ChampionInfo::imageUrl).orElse(null);
 
-        List<String> itemImageUrls = List.of(objectMapper.readValue(p.getItemsJson(), Integer[].class)).stream()
-                .map(id -> id == 0 ? null : dataDragonService.getItem(id).map(DataDragonService.ItemInfo::imageUrl).orElse(null))
+        List<ItemView> items = List.of(objectMapper.readValue(p.getItemsJson(), Integer[].class)).stream()
+                .map(id -> id == 0 ? null : dataDragonService.getItem(id)
+                        .map(item -> new ItemView(item.imageUrl(), item.description()))
+                        .orElse(null))
                 .toList();
 
         JsonNode perks = objectMapper.readTree(p.getRunesJson());
@@ -196,7 +198,7 @@ public class PageController {
                 p.getKills(), p.getDeaths(), p.getAssists(), p.getWin(),
                 dataDragonService.getSpell(p.getSpell1Id()).map(DataDragonService.SpellInfo::imageUrl).orElse(null),
                 dataDragonService.getSpell(p.getSpell2Id()).map(DataDragonService.SpellInfo::imageUrl).orElse(null),
-                itemImageUrls, keystoneIconUrl, secondaryStyleIconUrl);
+                items, keystoneIconUrl, secondaryStyleIconUrl);
     }
 
     private String winRate(Integer wins, Integer losses) {
@@ -242,8 +244,11 @@ public class PageController {
     public record ParticipantView(
             String gameName, String tagLine, String championName, String championImageUrl, String teamPosition,
             Integer kills, Integer deaths, Integer assists, Boolean win,
-            String spell1ImageUrl, String spell2ImageUrl, List<String> itemImageUrls,
+            String spell1ImageUrl, String spell2ImageUrl, List<ItemView> items,
             String keystoneIconUrl, String secondaryStyleIconUrl) {
+    }
+
+    public record ItemView(String imageUrl, String description) {
     }
 
     public record ChampionStatsView(
