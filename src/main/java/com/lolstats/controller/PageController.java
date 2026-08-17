@@ -6,6 +6,7 @@ import com.lolstats.domain.Summoner;
 import com.lolstats.dto.ChampionStatRow;
 import com.lolstats.dto.ChampionStatsResponse;
 import com.lolstats.dto.FavoriteResponse;
+import com.lolstats.dto.ItemEvent;
 import com.lolstats.dto.SearchHistoryResponse;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -148,21 +150,60 @@ public class PageController {
     }
 
     @GetMapping("/matches/{riotMatchId}")
-    public String matchDetail(@PathVariable String riotMatchId, Model model) {
+    public String matchDetail(
+            @PathVariable String riotMatchId,
+            @RequestParam(required = false) String focusPuuid,
+            Model model) {
         Match match = matchRepository.findByRiotMatchId(riotMatchId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "match not found: " + riotMatchId));
         List<MatchParticipant> participants = matchParticipantRepository.findByMatchId(match.getId());
+        List<ItemEvent> itemEvents = parseItemEvents(match.getItemEventsJson());
 
         model.addAttribute("riotMatchId", match.getRiotMatchId());
         model.addAttribute("playedAt", PLAYED_AT_FORMAT.format(match.getGameCreation()));
         model.addAttribute("duration", formatDuration(match.getGameDuration()));
         model.addAttribute("queueType", QueueNames.displayName(match.getQueueType()));
-        // Only Rift matches are ever linked to from the match list (RIFT_QUEUE_TYPES filter
-        // above), so this is always 10 participants; Riot's response orders them team100
-        // (first 5) then team200 (last 5), and saveAll()/findByMatchId preserve that order.
-        model.addAttribute("team1", participants.stream().limit(5).map(this::toParticipantView).toList());
-        model.addAttribute("team2", participants.stream().skip(5).map(this::toParticipantView).toList());
+        // Riot's response orders participants team100 (first 5) then team200 (last 5), and
+        // saveAll()/findByMatchId preserve that order - that order IS the Timeline
+        // participantId (1-based position = participantId). Kept as limit/skip (not
+        // subList(0,5)/subList(5,10)) so a match saved with fewer than 10 participants still
+        // renders instead of throwing IndexOutOfBoundsException.
+        List<ParticipantView> views = toParticipantViews(participants, focusPuuid, itemEvents);
+        model.addAttribute("team1", views.stream().limit(5).toList());
+        model.addAttribute("team2", views.stream().skip(5).toList());
         return "match-detail";
+    }
+
+    private List<ParticipantView> toParticipantViews(
+            List<MatchParticipant> participants, String focusPuuid, List<ItemEvent> itemEvents) {
+        return java.util.stream.IntStream.range(0, participants.size())
+                .mapToObj(i -> {
+                    MatchParticipant p = participants.get(i);
+                    int participantId = i + 1;
+                    List<ItemEventView> events = p.getPuuid().equals(focusPuuid)
+                            ? toItemEventViews(itemEvents, participantId)
+                            : List.of();
+                    return toParticipantView(p, events);
+                })
+                .toList();
+    }
+
+    private List<ItemEventView> toItemEventViews(List<ItemEvent> itemEvents, int participantId) {
+        return itemEvents.stream()
+                .filter(e -> e.participantId() == participantId)
+                .map(e -> new ItemEventView(
+                        dataDragonService.getItem(e.itemId()).map(DataDragonService.ItemInfo::imageUrl).orElse(null),
+                        dataDragonService.getItem(e.itemId()).map(DataDragonService.ItemInfo::name).orElse("?"),
+                        e.type(),
+                        formatDuration((int) (e.timestampMs() / 1000))))
+                .toList();
+    }
+
+    private List<ItemEvent> parseItemEvents(String itemEventsJson) {
+        if (itemEventsJson == null) {
+            return List.of();
+        }
+        return List.of(objectMapper.readValue(itemEventsJson, ItemEvent[].class));
     }
 
     private MatchCardView toMatchCard(MatchParticipant p) {
@@ -176,6 +217,10 @@ public class PageController {
     }
 
     private ParticipantView toParticipantView(MatchParticipant p) {
+        return toParticipantView(p, List.of());
+    }
+
+    private ParticipantView toParticipantView(MatchParticipant p, List<ItemEventView> itemEvents) {
         String championName = dataDragonService.getChampion(p.getChampionId())
                 .map(DataDragonService.ChampionInfo::name).orElse("?");
         String championImageUrl = dataDragonService.getChampion(p.getChampionId())
@@ -198,7 +243,7 @@ public class PageController {
                 p.getKills(), p.getDeaths(), p.getAssists(), p.getWin(),
                 dataDragonService.getSpell(p.getSpell1Id()).map(DataDragonService.SpellInfo::imageUrl).orElse(null),
                 dataDragonService.getSpell(p.getSpell2Id()).map(DataDragonService.SpellInfo::imageUrl).orElse(null),
-                items, keystoneIconUrl, secondaryStyleIconUrl);
+                items, keystoneIconUrl, secondaryStyleIconUrl, itemEvents);
     }
 
     private String winRate(Integer wins, Integer losses) {
@@ -245,7 +290,10 @@ public class PageController {
             String gameName, String tagLine, String championName, String championImageUrl, String teamPosition,
             Integer kills, Integer deaths, Integer assists, Boolean win,
             String spell1ImageUrl, String spell2ImageUrl, List<ItemView> items,
-            String keystoneIconUrl, String secondaryStyleIconUrl) {
+            String keystoneIconUrl, String secondaryStyleIconUrl, List<ItemEventView> itemEvents) {
+    }
+
+    public record ItemEventView(String imageUrl, String name, String type, String timeLabel) {
     }
 
     public record ItemView(String imageUrl, String name, String description) {
