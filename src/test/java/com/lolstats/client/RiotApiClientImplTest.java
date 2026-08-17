@@ -4,6 +4,7 @@ import com.lolstats.client.dto.RiotAccountResponse;
 import com.lolstats.client.dto.RiotLeagueEntryResponse;
 import com.lolstats.client.dto.RiotLeagueSeedEntryResponse;
 import com.lolstats.client.dto.RiotMatchResponse;
+import com.lolstats.client.dto.RiotMatchTimelineResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -256,6 +257,34 @@ class RiotApiClientImplTest {
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
 
         assertThrows(HttpClientErrorException.Unauthorized.class, () -> client.getMatchById("KR_9999999999"));
+        regionalServer.verify();
+    }
+
+    @Test
+    void getMatchTimeline_usesRegionalRoutingAndKeepsEventsAsRawNodes() {
+        regionalServer.expect(requestTo(REGIONAL_URL + "/lol/match/v5/matches/KR_1111111111/timeline"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {
+                          "info": {
+                            "frames": [
+                              {
+                                "events": [
+                                  {"type": "ITEM_PURCHASED", "timestamp": 65000, "participantId": 3, "itemId": 1055},
+                                  {"type": "CHAMPION_KILL", "timestamp": 90000, "killerId": 3, "victimId": 8}
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        RiotMatchTimelineResponse result = client.getMatchTimeline("KR_1111111111");
+
+        assertEquals(1, result.info().frames().size());
+        assertEquals(2, result.info().frames().get(0).events().size());
+        assertEquals("ITEM_PURCHASED", result.info().frames().get(0).events().get(0).path("type").asText());
+        assertEquals(1055, result.info().frames().get(0).events().get(0).path("itemId").asInt());
         regionalServer.verify();
     }
 }

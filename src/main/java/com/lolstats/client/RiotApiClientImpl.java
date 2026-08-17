@@ -6,6 +6,7 @@ import com.lolstats.client.dto.RiotLeagueItemResponse;
 import com.lolstats.client.dto.RiotLeagueListResponse;
 import com.lolstats.client.dto.RiotLeagueSeedEntryResponse;
 import com.lolstats.client.dto.RiotMatchResponse;
+import com.lolstats.client.dto.RiotMatchTimelineResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -122,6 +123,14 @@ public class RiotApiClientImpl implements RiotApiClient {
                 .uri("/lol/match/v5/matches/{matchId}", matchId)
                 .retrieve()
                 .body(RiotMatchResponse.class));
+    }
+
+    @Override
+    public RiotMatchTimelineResponse getMatchTimeline(String matchId) {
+        return withRetry(() -> regionalClient.get()
+                .uri("/lol/match/v5/matches/{matchId}/timeline", matchId)
+                .retrieve()
+                .body(RiotMatchTimelineResponse.class));
     }
 
     private <T> T withRetry(Supplier<T> call) {

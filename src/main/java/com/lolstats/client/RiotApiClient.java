@@ -4,6 +4,7 @@ import com.lolstats.client.dto.RiotAccountResponse;
 import com.lolstats.client.dto.RiotLeagueEntryResponse;
 import com.lolstats.client.dto.RiotLeagueSeedEntryResponse;
 import com.lolstats.client.dto.RiotMatchResponse;
+import com.lolstats.client.dto.RiotMatchTimelineResponse;
 import com.lolstats.client.dto.RiotSummonerResponse;
 
 import java.util.List;
@@ -36,4 +37,6 @@ public interface RiotApiClient {
     List<String> getMatchIdsByPuuid(String puuid, int count);
 
     RiotMatchResponse getMatchById(String matchId);
+
+    RiotMatchTimelineResponse getMatchTimeline(String matchId);
 }
