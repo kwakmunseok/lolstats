@@ -13,6 +13,6 @@ public record RiotMatchTimelineResponse(RiotMatchTimelineInfo info) {
     public record RiotMatchTimelineInfo(List<RiotMatchTimelineFrame> frames) {
     }
 
-    public record RiotMatchTimelineFrame(JsonNode events) {
+    public record RiotMatchTimelineFrame(List<JsonNode> events) {
     }
 }
