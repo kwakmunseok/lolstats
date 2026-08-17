@@ -35,7 +35,7 @@
                     <span th:each="item : ${p.items}">
                         <img th:if="${item}" th:src="${item.imageUrl}" width="24" height="24" class="rounded"
                              alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
-                             th:attr="data-bs-content=${item.description}">
+                             th:attr="data-bs-title=${item.name},data-bs-content=${item.description}">
                     </span>
                 </td>
             </tr>
@@ -68,7 +68,7 @@
                     <span th:each="item : ${p.items}">
                         <img th:if="${item}" th:src="${item.imageUrl}" width="24" height="24" class="rounded"
                              alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
-                             th:attr="data-bs-content=${item.description}">
+                             th:attr="data-bs-title=${item.name},data-bs-content=${item.description}">
                     </span>
                 </td>
             </tr>

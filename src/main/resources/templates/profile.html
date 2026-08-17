@@ -88,7 +88,7 @@
                              class="bg-body-secondary rounded" style="width: 28px; height: 28px;">
                             <img th:if="${item}" th:src="${item.imageUrl}" width="28" height="28" class="rounded"
                                  alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
-                                 th:attr="data-bs-content=${item.description}">
+                                 th:attr="data-bs-title=${item.name},data-bs-content=${item.description}">
                         </div>
                     </div>
                 </div>

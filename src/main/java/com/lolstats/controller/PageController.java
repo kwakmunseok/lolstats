@@ -183,7 +183,7 @@ public class PageController {
 
         List<ItemView> items = List.of(objectMapper.readValue(p.getItemsJson(), Integer[].class)).stream()
                 .map(id -> id == 0 ? null : dataDragonService.getItem(id)
-                        .map(item -> new ItemView(item.imageUrl(), item.description()))
+                        .map(item -> new ItemView(item.imageUrl(), item.name(), item.description()))
                         .orElse(null))
                 .toList();
 
@@ -248,7 +248,7 @@ public class PageController {
             String keystoneIconUrl, String secondaryStyleIconUrl) {
     }
 
-    public record ItemView(String imageUrl, String description) {
+    public record ItemView(String imageUrl, String name, String description) {
     }
 
     public record ChampionStatsView(
