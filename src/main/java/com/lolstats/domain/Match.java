@@ -11,6 +11,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -38,4 +40,8 @@ public class Match {
 
     @Column(name = "queue_type")
     private String queueType;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "item_events_json", columnDefinition = "json")
+    private String itemEventsJson;
 }

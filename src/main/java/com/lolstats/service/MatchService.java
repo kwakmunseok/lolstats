@@ -2,19 +2,24 @@ package com.lolstats.service;
 
 import com.lolstats.client.RiotApiClient;
 import com.lolstats.client.dto.RiotMatchResponse;
+import com.lolstats.client.dto.RiotMatchTimelineResponse;
 import com.lolstats.domain.Match;
 import com.lolstats.domain.MatchParticipant;
+import com.lolstats.dto.ItemEvent;
 import com.lolstats.repository.MatchParticipantRepository;
 import com.lolstats.repository.MatchRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.List;
 
+@Slf4j
 @Service
 public class MatchService {
 
@@ -77,7 +82,8 @@ public class MatchService {
         int savedCount = 0;
         for (String matchId : matchIds) {
             try {
-                saveMatch(riotApiClient.getMatchById(matchId));
+                RiotMatchResponse response = riotApiClient.getMatchById(matchId);
+                saveMatch(response, fetchItemEventsJson(matchId));
                 savedCount++;
                 afterEachSave.run();
             } catch (HttpClientErrorException.TooManyRequests e) {
@@ -90,13 +96,14 @@ public class MatchService {
         return new CollectionResult(savedCount, true);
     }
 
-    private void saveMatch(RiotMatchResponse response) {
+    private void saveMatch(RiotMatchResponse response, String itemEventsJson) {
         transactionTemplate.executeWithoutResult(status -> {
             Match match = matchRepository.save(Match.builder()
                     .riotMatchId(response.metadata().matchId())
                     .gameCreation(Instant.ofEpochMilli(response.info().gameCreation()))
                     .gameDuration(response.info().gameDuration())
                     .queueType(String.valueOf(response.info().queueId()))
+                    .itemEventsJson(itemEventsJson)
                     .build());
 
             List<MatchParticipant> participants = response.info().participants().stream()
@@ -104,6 +111,35 @@ public class MatchService {
                     .toList();
             matchParticipantRepository.saveAll(participants);
         });
+    }
+
+    // Timeline은 매치 상세와 별개의 Riot API 호출 - 여기서 실패(429/5xx/타임아웃)해도 매치 저장
+    // 자체를 막으면 안 되므로 null을 돌려주고 계속 진행한다(PageController는 null이면 빌드 오더
+    // 줄을 그냥 생략함, 에러 아님).
+    private String fetchItemEventsJson(String matchId) {
+        RiotMatchTimelineResponse timeline;
+        try {
+            timeline = riotApiClient.getMatchTimeline(matchId);
+        } catch (RuntimeException e) {
+            log.warn("Failed to fetch match timeline for {} - item build order will be unavailable", matchId, e);
+            return null;
+        }
+        // Tests that don't stub getMatchTimeline() get null back from Mockito - same "no
+        // timeline data" outcome as a caught failure above, not a separate case to test.
+        if (timeline == null) {
+            return null;
+        }
+        List<ItemEvent> events = timeline.info().frames().stream()
+                .flatMap(f -> f.events().stream())
+                .filter(e -> "ITEM_PURCHASED".equals(e.path("type").asString(""))
+                        || "ITEM_SOLD".equals(e.path("type").asString("")))
+                .map(e -> new ItemEvent(
+                        e.path("participantId").asInt(0),
+                        e.path("itemId").asInt(0),
+                        e.path("type").asString(""),
+                        e.path("timestamp").asLong(0)))
+                .toList();
+        return writeJson(events);
     }
 
     private MatchParticipant toParticipant(Match match, RiotMatchResponse.RiotMatchParticipant p) {

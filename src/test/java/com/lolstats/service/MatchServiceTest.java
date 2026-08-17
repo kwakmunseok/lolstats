@@ -2,6 +2,7 @@ package com.lolstats.service;
 
 import com.lolstats.client.RiotApiClient;
 import com.lolstats.client.dto.RiotMatchResponse;
+import com.lolstats.client.dto.RiotMatchTimelineResponse;
 import com.lolstats.domain.Match;
 import com.lolstats.domain.MatchParticipant;
 import com.lolstats.repository.MatchParticipantRepository;
@@ -17,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
@@ -24,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
@@ -67,6 +70,21 @@ class MatchServiceTest {
                                 10, 2, 8, true, 4, 12,
                                 1001, 0, 0, 0, 0, 0, 3340,
                                 JsonMapper.builder().build().readTree("{}")))));
+    }
+
+    private static RiotMatchTimelineResponse sampleTimeline() {
+        JsonMapper mapper = JsonMapper.builder().build();
+        JsonNode purchased = mapper.readTree("""
+                {"type":"ITEM_PURCHASED","timestamp":65000,"participantId":1,"itemId":1055}
+                """);
+        JsonNode sold = mapper.readTree("""
+                {"type":"ITEM_SOLD","timestamp":120000,"participantId":1,"itemId":1055}
+                """);
+        JsonNode kill = mapper.readTree("""
+                {"type":"CHAMPION_KILL","timestamp":90000,"killerId":1,"victimId":6}
+                """);
+        return new RiotMatchTimelineResponse(new RiotMatchTimelineResponse.RiotMatchTimelineInfo(
+                List.of(new RiotMatchTimelineResponse.RiotMatchTimelineFrame(List.of(purchased, sold, kill)))));
     }
 
     @Test
@@ -151,5 +169,36 @@ class MatchServiceTest {
         verify(matchRepository, times(1)).save(any(Match.class));
         assertEquals(1, result.savedCount());
         assertFalse(result.complete());
+    }
+
+    @Test
+    void collectMatches_savesItemEventsJson_purchasedAndSoldOnly() {
+        when(riotApiClient.getMatchById("KR_1")).thenReturn(sampleMatch("KR_1"));
+        when(riotApiClient.getMatchTimeline("KR_1")).thenReturn(sampleTimeline());
+
+        service.collectMatches(List.of("KR_1"), () -> {
+        });
+
+        ArgumentCaptor<Match> matchCaptor = ArgumentCaptor.forClass(Match.class);
+        verify(matchRepository).save(matchCaptor.capture());
+        String json = matchCaptor.getValue().getItemEventsJson();
+        assertTrue(json.contains("ITEM_PURCHASED"));
+        assertTrue(json.contains("ITEM_SOLD"));
+        assertTrue(json.contains("1055"));
+        assertFalse(json.contains("CHAMPION_KILL"));
+    }
+
+    @Test
+    void collectMatches_savesMatchEvenWhenTimelineFetchFails() {
+        when(riotApiClient.getMatchById("KR_1")).thenReturn(sampleMatch("KR_1"));
+        when(riotApiClient.getMatchTimeline("KR_1")).thenThrow(new RuntimeException("Riot API down"));
+
+        MatchService.CollectionResult result = service.collectMatches(List.of("KR_1"), () -> {
+        });
+
+        assertEquals(1, result.savedCount());
+        ArgumentCaptor<Match> matchCaptor = ArgumentCaptor.forClass(Match.class);
+        verify(matchRepository).save(matchCaptor.capture());
+        assertNull(matchCaptor.getValue().getItemEventsJson());
     }
 }
