@@ -50,7 +50,7 @@
         <div class="tab-pane fade show active" id="matchesPane" role="tabpanel">
             <p th:if="${#lists.isEmpty(matches)}" class="text-muted">매치 기록이 없습니다.</p>
 
-            <a th:each="m : ${matches}" th:href="@{/matches/{id}(id=${m.riotMatchId})}"
+            <a th:each="m : ${matches}" th:href="@{/matches/{id}(id=${m.riotMatchId}, focusPuuid=${summoner.puuid})}"
                class="card mb-2 text-decoration-none text-body"
                th:classappend="${m.player.win} ? 'border-primary-subtle bg-primary-subtle' : 'border-danger-subtle bg-danger-subtle'">
                 <div class="card-body d-flex align-items-center gap-3 py-2">

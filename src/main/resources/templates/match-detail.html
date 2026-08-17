@@ -37,6 +37,13 @@
                              alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
                              th:attr="data-bs-title=${item.name},data-bs-content=${item.description}">
                     </span>
+                    <div th:if="${not #lists.isEmpty(p.itemEvents)}" class="d-flex flex-wrap align-items-center gap-1 mt-1">
+                        <span th:each="ev : ${p.itemEvents}" class="d-flex align-items-center"
+                              th:classappend="${ev.type == 'ITEM_SOLD'} ? 'opacity-50' : ''">
+                            <img th:src="${ev.imageUrl}" width="16" height="16" class="rounded" th:alt="${ev.name}">
+                            <small class="text-muted ms-1" th:text="${ev.timeLabel}">0:00</small>
+                        </span>
+                    </div>
                 </td>
             </tr>
             </tbody>
@@ -70,6 +77,13 @@
                              alt="아이템" data-bs-toggle="popover" data-bs-html="true" data-bs-trigger="hover focus"
                              th:attr="data-bs-title=${item.name},data-bs-content=${item.description}">
                     </span>
+                    <div th:if="${not #lists.isEmpty(p.itemEvents)}" class="d-flex flex-wrap align-items-center gap-1 mt-1">
+                        <span th:each="ev : ${p.itemEvents}" class="d-flex align-items-center"
+                              th:classappend="${ev.type == 'ITEM_SOLD'} ? 'opacity-50' : ''">
+                            <img th:src="${ev.imageUrl}" width="16" height="16" class="rounded" th:alt="${ev.name}">
+                            <small class="text-muted ms-1" th:text="${ev.timeLabel}">0:00</small>
+                        </span>
+                    </div>
                 </td>
             </tr>
             </tbody>
