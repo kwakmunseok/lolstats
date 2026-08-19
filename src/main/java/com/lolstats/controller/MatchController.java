@@ -92,7 +92,7 @@ public class MatchController {
         Match match = matchRepository.findByRiotMatchId(riotMatchId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "match not found: " + riotMatchId));
 
-        List<MatchParticipant> participants = matchParticipantRepository.findByMatchId(match.getId());
+        List<MatchParticipant> participants = matchParticipantRepository.findByMatchIdOrderByIdAsc(match.getId());
         return MatchDetailResponse.from(match, participants);
     }
 }

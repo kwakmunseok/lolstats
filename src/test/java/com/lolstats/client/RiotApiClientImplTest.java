@@ -283,7 +283,7 @@ class RiotApiClientImplTest {
 
         assertEquals(1, result.info().frames().size());
         assertEquals(2, result.info().frames().get(0).events().size());
-        assertEquals("ITEM_PURCHASED", result.info().frames().get(0).events().get(0).path("type").asText());
+        assertEquals("ITEM_PURCHASED", result.info().frames().get(0).events().get(0).path("type").asString(""));
         assertEquals(1055, result.info().frames().get(0).events().get(0).path("itemId").asInt());
         regionalServer.verify();
     }

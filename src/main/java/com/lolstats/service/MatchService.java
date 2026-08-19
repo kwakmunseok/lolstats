@@ -120,6 +120,12 @@ public class MatchService {
         RiotMatchTimelineResponse timeline;
         try {
             timeline = riotApiClient.getMatchTimeline(matchId);
+        } catch (HttpClientErrorException.TooManyRequests e) {
+            // Let this propagate to collectMatches's own TooManyRequests handler, which stops
+            // the run and reports complete=false so the crawler retries - swallowing it here
+            // instead would save the match as if timeline collection fully succeeded, and
+            // planCollection filters out already-saved matches, so it would never be retried.
+            throw e;
         } catch (RuntimeException e) {
             log.warn("Failed to fetch match timeline for {} - item build order will be unavailable", matchId, e);
             return null;

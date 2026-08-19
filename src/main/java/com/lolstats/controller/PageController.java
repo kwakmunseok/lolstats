@@ -35,6 +35,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 // Server-rendered screens (Task 9). Reuses the same service layer as the JSON API
 // controllers instead of having the templates call /api/* over HTTP.
@@ -156,7 +157,7 @@ public class PageController {
             Model model) {
         Match match = matchRepository.findByRiotMatchId(riotMatchId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "match not found: " + riotMatchId));
-        List<MatchParticipant> participants = matchParticipantRepository.findByMatchId(match.getId());
+        List<MatchParticipant> participants = matchParticipantRepository.findByMatchIdOrderByIdAsc(match.getId());
         List<ItemEvent> itemEvents = parseItemEvents(match.getItemEventsJson());
 
         model.addAttribute("riotMatchId", match.getRiotMatchId());
@@ -164,7 +165,7 @@ public class PageController {
         model.addAttribute("duration", formatDuration(match.getGameDuration()));
         model.addAttribute("queueType", QueueNames.displayName(match.getQueueType()));
         // Riot's response orders participants team100 (first 5) then team200 (last 5), and
-        // saveAll()/findByMatchId preserve that order - that order IS the Timeline
+        // saveAll()/findByMatchIdOrderByIdAsc preserve that order - that order IS the Timeline
         // participantId (1-based position = participantId). Kept as limit/skip (not
         // subList(0,5)/subList(5,10)) so a match saved with fewer than 10 participants still
         // renders instead of throwing IndexOutOfBoundsException.
@@ -174,7 +175,10 @@ public class PageController {
         return "match-detail";
     }
 
-    private List<ParticipantView> toParticipantViews(
+    // Package-private (not private) so PageControllerTest can exercise the participantId
+    // mapping directly - this is the highest-risk logic in the feature (silent mis-attribution
+    // of item events to the wrong player if the i+1/ordering assumption ever breaks).
+    List<ParticipantView> toParticipantViews(
             List<MatchParticipant> participants, String focusPuuid, List<ItemEvent> itemEvents) {
         return java.util.stream.IntStream.range(0, participants.size())
                 .mapToObj(i -> {
@@ -191,11 +195,14 @@ public class PageController {
     private List<ItemEventView> toItemEventViews(List<ItemEvent> itemEvents, int participantId) {
         return itemEvents.stream()
                 .filter(e -> e.participantId() == participantId)
-                .map(e -> new ItemEventView(
-                        dataDragonService.getItem(e.itemId()).map(DataDragonService.ItemInfo::imageUrl).orElse(null),
-                        dataDragonService.getItem(e.itemId()).map(DataDragonService.ItemInfo::name).orElse("?"),
-                        e.type(),
-                        formatDuration((int) (e.timestampMs() / 1000))))
+                .map(e -> {
+                    Optional<DataDragonService.ItemInfo> item = dataDragonService.getItem(e.itemId());
+                    return new ItemEventView(
+                            item.map(DataDragonService.ItemInfo::imageUrl).orElse(null),
+                            item.map(DataDragonService.ItemInfo::name).orElse("?"),
+                            "ITEM_SOLD".equals(e.type()),
+                            formatDuration((int) (e.timestampMs() / 1000)));
+                })
                 .toList();
     }
 
@@ -293,7 +300,7 @@ public class PageController {
             String keystoneIconUrl, String secondaryStyleIconUrl, List<ItemEventView> itemEvents) {
     }
 
-    public record ItemEventView(String imageUrl, String name, String type, String timeLabel) {
+    public record ItemEventView(String imageUrl, String name, boolean sold, String timeLabel) {
     }
 
     public record ItemView(String imageUrl, String name, String description) {

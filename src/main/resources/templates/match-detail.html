@@ -39,8 +39,8 @@
                     </span>
                     <div th:if="${not #lists.isEmpty(p.itemEvents)}" class="d-flex flex-wrap align-items-center gap-1 mt-1">
                         <span th:each="ev : ${p.itemEvents}" class="d-flex align-items-center"
-                              th:classappend="${ev.type == 'ITEM_SOLD'} ? 'opacity-50' : ''">
-                            <img th:src="${ev.imageUrl}" width="16" height="16" class="rounded" th:alt="${ev.name}">
+                              th:classappend="${ev.sold} ? 'opacity-50' : ''">
+                            <img th:if="${ev.imageUrl}" th:src="${ev.imageUrl}" width="16" height="16" class="rounded" th:alt="${ev.name}">
                             <small class="text-muted ms-1" th:text="${ev.timeLabel}">0:00</small>
                         </span>
                     </div>
@@ -79,8 +79,8 @@
                     </span>
                     <div th:if="${not #lists.isEmpty(p.itemEvents)}" class="d-flex flex-wrap align-items-center gap-1 mt-1">
                         <span th:each="ev : ${p.itemEvents}" class="d-flex align-items-center"
-                              th:classappend="${ev.type == 'ITEM_SOLD'} ? 'opacity-50' : ''">
-                            <img th:src="${ev.imageUrl}" width="16" height="16" class="rounded" th:alt="${ev.name}">
+                              th:classappend="${ev.sold} ? 'opacity-50' : ''">
+                            <img th:if="${ev.imageUrl}" th:src="${ev.imageUrl}" width="16" height="16" class="rounded" th:alt="${ev.name}">
                             <small class="text-muted ms-1" th:text="${ev.timeLabel}">0:00</small>
                         </span>
                     </div>

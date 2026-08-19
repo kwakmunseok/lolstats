@@ -189,6 +189,25 @@ class MatchServiceTest {
     }
 
     @Test
+    void collectMatches_timelineFetch429_propagatesToStopTheRun_doesNotSaveAsComplete() {
+        // A 429 from getMatchTimeline must reach collectMatches's own TooManyRequests handler
+        // (not be swallowed as an ordinary timeline failure) - otherwise the match gets saved
+        // as if collection fully succeeded, and planCollection filters out already-saved
+        // matches, so the missing timeline data would never be retried.
+        when(riotApiClient.getMatchById("KR_1")).thenReturn(sampleMatch("KR_1"));
+        when(riotApiClient.getMatchTimeline("KR_1"))
+                .thenThrow(HttpClientErrorException.create(
+                        HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY, new byte[0], null));
+
+        MatchService.CollectionResult result = service.collectMatches(List.of("KR_1"), () -> {
+        });
+
+        assertEquals(0, result.savedCount());
+        assertFalse(result.complete());
+        verify(matchRepository, never()).save(any(Match.class));
+    }
+
+    @Test
     void collectMatches_savesMatchEvenWhenTimelineFetchFails() {
         when(riotApiClient.getMatchById("KR_1")).thenReturn(sampleMatch("KR_1"));
         when(riotApiClient.getMatchTimeline("KR_1")).thenThrow(new RuntimeException("Riot API down"));

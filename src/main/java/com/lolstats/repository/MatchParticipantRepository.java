@@ -19,7 +19,11 @@ public interface MatchParticipantRepository extends JpaRepository<MatchParticipa
     // (principle ①: never re-request an already-seen match id), just not surfaced here.
     Page<MatchParticipant> findByPuuidAndMatch_QueueTypeIn(String puuid, Collection<String> queueTypes, Pageable pageable);
 
-    List<MatchParticipant> findByMatchId(Long matchId);
+    // OrderByIdAsc matters: MatchParticipant uses GenerationType.IDENTITY so saveAll() assigns
+    // ids in insertion order, which is the order MatchService iterated Riot's participant array
+    // in - i.e. id-ascending reconstructs that array order, which PageController/MatchController
+    // rely on for participantId = (list index) + 1 (Timeline API's participantId).
+    List<MatchParticipant> findByMatchIdOrderByIdAsc(Long matchId);
 
     // Stats aggregation (Phase 3) - same Rift-only queue filter as the match list above, but
     // unpaged: a live user's own collection caps at MatchService.MATCH_ID_FETCH_COUNT (20),
